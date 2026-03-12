@@ -9,8 +9,8 @@ from rest_framework import permissions
 from rest_framework.response import Response
 from rest_framework.exceptions import NotFound
 
-from .models import TemplateType
-from .serializers import TemplateTypeSerializer
+from .models import TemplateType, Template
+from .serializers import TemplateTypeSerializer, TemplateSerializer
 
 
 class CustomizedPageNumberPagination(LazyPageNumberPagination):
@@ -116,3 +116,135 @@ class TemplateTypesDetailView(APIView):
         return Response(
             {"detail": "TemplateType has been deactivated (soft deleted)."}, status=status.HTTP_204_NO_CONTENT
         )
+
+
+class TemplatesListView(ListCreateAPIView):
+    """
+    API view to retrieve list of templates.
+    Only accessible to logged-in super admins.
+
+    Endpoint: GET /tas/api/v1/templates/
+
+    GET:
+        - Returns a list of Template records, ordered by name for ease of use.
+    """
+
+    queryset = (
+        Template.objects.all()
+        .order_by("name")
+        .only(
+            "id",
+            "template_type",
+            "name",
+            "description",
+            "image",
+            "image_width",
+            "image_height",
+            "thumbnail",
+            "fields",
+            "field_positions",
+            "is_public",
+            "is_active",
+        )
+    )
+    serializer_class = TemplateSerializer
+    permission_classes = [permissions.IsAdminUser]
+    pagination_class = CustomizedPageNumberPagination
+    authentication_classes = [JwtAuthentication, SessionAuthentication]
+
+    def get_queryset(self):
+        """
+        Optionally restricts the returned template types,
+        by filtering against 'is_active' if passed as a query param.
+        """
+        queryset = self.queryset
+        template_type = self.request.query_params.get("template_type")
+        if template_type is not None:
+            queryset = queryset.filter(template_type=template_type)
+        return queryset
+
+    def perform_create(self, serializer):
+        """
+        Save the new template type instance. Additional logging or auditing
+        could be added here if needed.
+        """
+        serializer.save()
+
+
+class TemplatesDetailView(APIView):
+    """
+    API view to retrieve, update, and 'delete' (soft-delete) a template by id.
+    Only accessible to logged-in super admins.
+
+    Endpoint: GET /tas/api/v1/templates/<int:pk>/
+
+    GET:
+        - Returns the detail of a Template record for the given id (pk).
+    PUT:
+        - Full updates the Template.
+    PATCH:
+        - Partially updates the Template.
+    DELETE:
+        - Soft-deletes the Template (sets is_active=False).
+    """
+
+    permission_classes = [permissions.IsAdminUser]
+    authentication_classes = [JwtAuthentication, SessionAuthentication]
+
+    def get_object(self, pk):
+        try:
+            return Template.objects.only(
+                "id",
+                "template_type",
+                "name",
+                "description",
+                "image",
+                "image_width",
+                "image_height",
+                "thumbnail",
+                "fields",
+                "field_positions",
+                "is_public",
+                "is_active",
+            ).get(pk=pk)
+        except Template.DoesNotExist:
+            raise NotFound("Template not found.")
+
+    def get(self, request, pk):
+        """
+        Retrieve the details of the specified Template.
+        """
+        template = self.get_object(pk)
+        serializer = TemplateSerializer(template)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    def put(self, request, pk):
+        """
+        Full update the Template instance.
+        """
+        template = self.get_object(pk)
+        serializer = TemplateSerializer(template, data=request.data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    def patch(self, request, pk):
+        """
+        Partially update the Template instance.
+        """
+        template = self.get_object(pk)
+        serializer = TemplateSerializer(template, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    def delete(self, request, pk):
+        """
+        Soft delete: Set is_active to False instead of deleting the object.
+        """
+        template = self.get_object(pk)
+        if not template.is_active:
+            return Response({"detail": "Template is already inactive."}, status=status.HTTP_400_BAD_REQUEST)
+        template.is_active = False
+        template.save()
+        return Response({"detail": "Template has been deactivated (soft deleted)."}, status=status.HTTP_204_NO_CONTENT)
