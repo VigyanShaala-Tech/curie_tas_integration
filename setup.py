@@ -50,7 +50,16 @@ print("requirements found: {requirements}".format(requirements=load_requirements
 setup(
     name="tas-integration",
     version=__version__,
-    packages=find_packages(),
+    packages=find_packages(
+        include=[
+            "tas_app",
+            "tas_app.*",
+            "tas_app.*",
+            "tas_xblock",
+            "tas_xblock.*",
+        ],
+        exclude=["*tests"],
+    ),
     package_data={"": ["*.html"]},  # include any Mako templates found in this repo.
     include_package_data=True,
     license="Proprietary",
@@ -83,6 +92,11 @@ setup(
         "lms.djangoapp": [
             "tas_app = tas_app.apps:TASIntegrationConfig",
         ],
-        "cms.djangoapp": [],
+        "xblock.v1": [
+            "tas = tas_xblock.tas:TASXBlock",
+        ],
+        "cms.djangoapp": [
+            "tas_app = tas_app.apps:TASIntegrationConfig",
+        ],
     },
 )

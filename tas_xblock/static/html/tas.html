@@ -1,0 +1,8 @@
+{% load i18n %}
+<div class="tas_block">
+    {% if template_type and template %}
+    <a href="#" class="button action-primary" id="submit_assignment">Submit Assignment</a>
+    {% else %}
+    <p>No template selected</p>
+    {% endif %}
+</div>

@@ -1,0 +1,49 @@
+{% load i18n %}
+<div class="wrapper-comp-settings editor-with-buttons is-active" id="settings-tab">
+    <ul class="list-input settings-list">
+        
+         <li class="field comp-setting-entry is-set">
+            <div class="wrapper-comp-setting">
+                <label class="label setting-label" for="tas_edit_display_name">{% trans "Display Name" %}</label>
+                <input class="input setting-input" id="tas_edit_display_name" value="{{ display_name }}" type="text">
+            </div>
+            <span class="tip setting-help">{% trans "This name appears in the horizontal navigation at the top of the page." %}</span>
+        </li>
+        
+        <li class="field comp-setting-entry is-set">
+            <div class="wrapper-comp-setting">
+                <label class="label setting-label" for="tas_edit_template_type">{% trans "Template Type" %}</label>
+                <select class="input setting-input" id="tas_edit_template_type">
+                    {% for template_type in assignment_template_types %}
+                        <option value="{{ template_type.id }}" {% if template_type.id == current_template_type %}selected{% endif %}>{{ template_type.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <span class="tip setting-help">{% trans "Select type of the template to use for the template based assignment." %}</span>
+        </li>
+        
+        <li class="field comp-setting-entry is-set">
+            <div class="wrapper-comp-setting">
+                <label class="label setting-label" for="tas_edit_template">{% trans "Template" %}</label>
+                <select class="input setting-input" id="tas_edit_template">
+                    {% for template in assignment_templates %}
+                        <option value="{{ template.id }}" {% if template.id == current_template %}selected{% endif %}>{{ template.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <span class="tip setting-help">{% trans "Select the template to use for the template based assignment." %}</span>
+        </li>
+    </ul>
+    <div class="xblock-actions">
+        <ul>
+            <li class="action-item">
+                <a href="#" class="button action-primary action-save">{% trans "Save" %}</a>
+            </li>
+            <li class="action-item">
+                <a href="#" class="button action-cancel">{% trans "Cancel" %}</a>
+            </li>
+        </ul>
+    </div>
+</div>
+
+
