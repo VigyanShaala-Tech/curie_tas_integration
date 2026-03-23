@@ -1,5 +1,5 @@
 {% load i18n %}
-<div class="wrapper-comp-settings editor-with-buttons is-active" id="settings-tab">
+<div class="wrapper-comp-settings editor-with-buttons is-active tas-edit-block" id="settings-tab">
     <ul class="list-input settings-list">
         
          <li class="field comp-setting-entry is-set">
@@ -32,6 +32,14 @@
                 </select>
             </div>
             <span class="tip setting-help">{% trans "Select the template to use for the template based assignment." %}</span>
+        </li>
+
+        <li class="field comp-setting-entry is-set">
+            <div class="wrapper-comp-setting">
+                <label class="label setting-label" for="tas_edit_instructions">{% trans "Instructions" %}</label>
+                <textarea class="input setting-input" id="tas_edit_instructions" rows="4">{{ instructions }}</textarea>
+            </div>
+            <span class="tip setting-help">{% trans "Write instructions for the student to follow while submitting the assignment." %}</span>
         </li>
     </ul>
     <div class="xblock-actions">

@@ -1,5 +1,5 @@
 .tas_block #submit_assignment {
-    color: #fff;
+    color: #fff !important;
     background-color: #69AB4A;
     border-color: #69AB4A;
     box-shadow: none;
@@ -8,4 +8,17 @@
     font-size: 18px;
     border-radius: 6px;
     text-align: center;
+}
+.tas_block #submit_assignment:hover,
+.tas_block #submit_assignment:focus {
+    text-decoration: none !important;
+}
+.tas_block .display-name {
+    margin-top: 0px;
+}
+.tas_block .instructions {
+    margin-bottom: 20px;
+}
+.tas_block .instructions-text {
+    font-size: 16px;
 }

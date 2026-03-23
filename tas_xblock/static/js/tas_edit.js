@@ -9,7 +9,8 @@ function TASXBlockInitEdit(runtime, element) {
         var data = {
             'display_name': $('#tas_edit_display_name').val(),
             'template_type': $('#tas_edit_template_type').val(),
-            'template': $('#tas_edit_template').val()
+            'template': $('#tas_edit_template').val(),
+            'instructions': $('#tas_edit_instructions').val()
         };
         
         runtime.notify('save', {state: 'start'});

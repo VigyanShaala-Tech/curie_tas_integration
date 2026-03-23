@@ -51,6 +51,13 @@ class TASXBlock(XBlock):
         help=_("Select the template to use for the template based assignment."),
     )
 
+    instructions = String(
+        display_name=_("Instructions"),
+        scope=Scope.settings,
+        default=_("This is a template based assignment. Click on the button below to submit the assignment."),
+        help=_("Write instructions for the student to follow while submitting the assignment."),
+    )
+
     def load_resource(self, resource_path):  # pylint: disable=no-self-use
         """
         Gets the content of a resource
@@ -80,6 +87,7 @@ class TASXBlock(XBlock):
             "display_name": self.display_name,
             "template_type": self.template_type,
             "template": self.template,
+            "instructions": self.instructions,
         }
         html = self.render_template("tas.html", context)
 
@@ -102,10 +110,12 @@ class TASXBlock(XBlock):
             "current_template": self.template,
             "assignment_template_types": assignment_template_types,
             "assignment_templates": assignment_templates,
+            "instructions": self.instructions,
         }
         html = self.render_template("tas_edit.html", context)
 
         frag = Fragment(html)
+        frag.add_css(self.load_resource("static/css/tas_edit.css"))
         frag.add_javascript(self.load_resource("static/js/tas_edit.js"))
         frag.initialize_js("TASXBlockInitEdit")
         return frag
@@ -118,6 +128,7 @@ class TASXBlock(XBlock):
         self.display_name = data["display_name"]
         self.template_type = data["template_type"]
         self.template = data["template"]
+        self.instructions = data["instructions"]
 
         return {"result": "success"}
 
