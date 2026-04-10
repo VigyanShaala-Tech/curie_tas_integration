@@ -5,6 +5,7 @@ from .models import (
     TemplateBlock,
     Submission,
     SubmissionVersion,
+    InstructorFeedback,
 )
 
 
@@ -28,11 +29,11 @@ class TemplateAdmin(admin.ModelAdmin):
 
 @admin.register(TemplateBlock)
 class TemplateBlockAdmin(admin.ModelAdmin):
-    list_display = ("template", "usage_key", "course_key", "sort_order", "assigned_by", "assigned_at")
+    list_display = ("template", "display_name", "usage_key", "course_key", "sort_order", "assigned_by", "assigned_at")
     search_fields = ("template__name", "usage_key", "course_key")
     list_filter = ("template", "course_key")
     raw_id_fields = ("template", "assigned_by")
-    ordering = ("course_key", "usage_key", "sort_order")
+    ordering = ("-assigned_at","course_key", "usage_key", "sort_order")
 
 
 @admin.register(Submission)
@@ -52,3 +53,12 @@ class SubmissionVersionAdmin(admin.ModelAdmin):
     raw_id_fields = ("submission",)
     date_hierarchy = "saved_at"
     ordering = ("-saved_at",)
+
+@admin.register(InstructorFeedback)
+class InstructorFeedbackAdmin(admin.ModelAdmin):
+
+    list_display = ("submission", "instructor", "status", "created",)
+    search_fields = ("submission__student__username",)
+    list_filter = ("status",)
+    raw_id_fields = ("submission", "instructor",)
+    ordering = ("-created",)

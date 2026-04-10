@@ -6,9 +6,16 @@
     </div>
     <div class="template">
         {% if template_type and template %}
-        <a href="#" id="submit_assignment">{% trans "Submit Assignment" %}</a>
+
+            {% if is_course_staff %}
+                <a href="#" id="submit_grade">{% trans "Grade Available Responses" %}</a>
+            {% else %}
+                <a href="#" id="submit_assignment">{% trans "Submit Assignment" %}</a>
+            {% endif %}
+
         {% else %}
         <p>{% trans "No template selected" %}</p>
         {% endif %}
     </div>
 </div>
+
