@@ -1,1 +1,78 @@
 .tas-edit-block #tas_edit_instructions{width: 48%;}
+
+/* ===== Tabs ===== */
+
+.tas-tabs {
+    border-bottom: 1px solid #dcdcdc;
+    margin-bottom: 15px;
+}
+
+.tab-btn {
+    background: none;
+    border: none;
+    padding: 8px 12px;
+    cursor: pointer;
+    color: #555;
+    font-weight: 500;
+}
+
+.tab-btn.active {
+    border-bottom: 2px solid #0075b4;
+    color: #0075b4;
+}
+
+/* ===== Tab Content ===== */
+
+.tab-content {
+    display: none;
+}
+
+.tab-content.active {
+    display: block;
+}
+
+/* ===== Rubrics Table ===== */
+
+.rubric-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 10px;
+}
+
+.rubric-table th,
+.rubric-table td {
+    border: 1px solid #ddd;
+    padding: 8px;
+}
+
+.rubric-table input {
+    width: 100%;
+    padding: 6px;
+    box-sizing: border-box;
+}
+
+/* Buttons */
+.add-rubric {
+    margin-top: 10px;
+    color: #fff !important;
+    background-color: #69AB4A;
+    border-color: #69AB4A;
+    box-shadow: none;
+    font-weight: 500;
+    padding: 10px 16px;
+    font-size: 18px;
+    border-radius: 6px;
+    text-align: center;
+}
+
+.rubric-table .del {
+    background: #d9534f;
+    color: #fff;
+    border: none;
+    padding: 4px 8px;
+    cursor: pointer;
+}
+
+.tas-edit-block #tas_edit_instructions {
+    width: 48%;
+}

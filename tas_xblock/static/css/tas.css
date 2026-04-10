@@ -22,3 +22,18 @@
 .tas_block .instructions-text {
     font-size: 16px;
 }
+.tas_block #submit_grade {
+    color: #fff !important;
+    background-color: #69AB4A;
+    border-color: #69AB4A;
+    box-shadow: none;
+    font-weight: 500;
+    padding: 10px 16px;
+    font-size: 18px;
+    border-radius: 6px;
+    text-align: center;
+}
+.tas_block #submit_grade:hover,
+.tas_block #submit_grade:focus {
+    text-decoration: none !important;
+}

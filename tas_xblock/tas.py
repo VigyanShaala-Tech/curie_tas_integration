@@ -9,7 +9,11 @@ from xblock.fields import Scope, String
 from xblock.fragment import Fragment
 from xblockutils.resources import ResourceLoader
 from tas_app.models import Template, TemplateType
-
+from xblock.fields import Scope, String, List
+import json
+from tas_app.models import TemplateBlock, Template
+from django.contrib.auth.models import User
+from lms.djangoapps.courseware.access import has_access
 
 def _(text):
     """
@@ -58,6 +62,12 @@ class TASXBlock(XBlock):
         help=_("Write instructions for the student to follow while submitting the assignment."),
     )
 
+    rubrics = List(
+        display_name=_("Rubrics"),
+        scope=Scope.settings,
+        default=[],
+        help=_("List of rubrics for evaluation"),
+    )
     def load_resource(self, resource_path):  # pylint: disable=no-self-use
         """
         Gets the content of a resource
@@ -82,12 +92,15 @@ class TASXBlock(XBlock):
         The primary view of the XBlock, shown to students
         when viewing courses.
         """
+        user = self.runtime.get_real_user()
+        is_course_staff = has_access(user, "staff", self.course_id)
 
         context = {
             "display_name": self.display_name,
             "template_type": self.template_type,
             "template": self.template,
             "instructions": self.instructions,
+            "is_course_staff": is_course_staff,
         }
         html = self.render_template("tas.html", context)
 
@@ -111,6 +124,7 @@ class TASXBlock(XBlock):
             "assignment_template_types": assignment_template_types,
             "assignment_templates": assignment_templates,
             "instructions": self.instructions,
+            "rubrics": json.dumps(self.rubrics),
         }
         html = self.render_template("tas_edit.html", context)
 
@@ -121,14 +135,36 @@ class TASXBlock(XBlock):
         return frag
 
     @XBlock.json_handler
-    def save_studio(self, data, suffix=""):  # pylint: disable=unused-argument
-        """
-        The saving handler.
-        """
+    def save_studio(self, data, suffix=""):
+
         self.display_name = data["display_name"]
         self.template_type = data["template_type"]
         self.template = data["template"]
         self.instructions = data["instructions"]
+        self.rubrics = data.get("rubrics", [])
+
+        try:
+            template_obj = Template.objects.get(id=self.template)
+
+            user_id = self.runtime.user_id
+            user = User.objects.get(id=user_id)
+
+            TemplateBlock.objects.update_or_create(
+                usage_key=str(self.location),
+                course_key=str(self.course_id),
+                defaults={
+                    "template": template_obj,
+                    "display_name": self.display_name,
+                    "template_type": self.template_type,
+                    "instructions": self.instructions,
+                    "rubrics": self.rubrics,
+                    "assigned_by": user,
+                    "sort_order": 0,
+                }
+            )
+
+        except Exception as e:
+            print("TemplateBlock Save Error:", e)
 
         return {"result": "success"}
 

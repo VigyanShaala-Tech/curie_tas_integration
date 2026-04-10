@@ -9,9 +9,8 @@ from rest_framework import permissions
 from rest_framework.response import Response
 from rest_framework.exceptions import NotFound
 
-from .models import TemplateType, Template
+from .models import TemplateType, Template ,TemplateBlock, Submission, InstructorFeedback
 from .serializers import TemplateTypeSerializer, TemplateSerializer
-
 
 class CustomizedPageNumberPagination(LazyPageNumberPagination):
     """
@@ -248,3 +247,115 @@ class TemplatesDetailView(APIView):
         template.is_active = False
         template.save()
         return Response({"detail": "Template has been deactivated (soft deleted)."}, status=status.HTTP_204_NO_CONTENT)
+
+
+class LearnerSubmissionsAPIView(APIView):
+
+    permission_classes = [permissions.IsAdminUser]
+    authentication_classes = [JwtAuthentication, SessionAuthentication]
+
+    def get(self, request, pk):
+
+        submissions = Submission.objects.filter(usage_key=pk).order_by("-submitted_at")
+
+        paginator = CustomizedPageNumberPagination()
+        page = paginator.paginate_queryset(submissions, request)
+
+        data = []
+        for sub in page:
+            data.append({
+                "id": sub.id,
+                "username": sub.student.username,
+                "submission_date": sub.submitted_at,
+                "grade": "N/A",
+                "grading_status": sub.status,
+            })
+
+        return paginator.get_paginated_response(data)
+
+
+class LearnerSubmissionDetailAPIView(APIView):
+
+    permission_classes = [permissions.IsAdminUser]
+    authentication_classes = [JwtAuthentication, SessionAuthentication]
+
+    def get(self, request, pk):
+        """
+        pk = submission ID
+        """
+
+        try:
+            sub = Submission.objects.get(id=pk)
+        except Submission.DoesNotExist:
+            return Response({"error": "Submission not found"}, status=404)
+
+        data = {
+            "id": sub.id,
+            "username": sub.student.username,
+            "course_key": str(sub.course_key),
+            "usage_key": str(sub.usage_key),
+
+            "submission_date": sub.submitted_at,
+            "status": sub.status,
+            "version": sub.version_number,
+
+            # (student answers)
+            "form_data": sub.form_data,
+
+            # FILE
+            "pdf": sub.pdf.url if sub.pdf else None,
+        }
+
+        return Response(data, status=status.HTTP_200_OK)
+
+class RubricsAPIView(APIView):
+
+    permission_classes = [permissions.IsAdminUser]
+    authentication_classes = [JwtAuthentication, SessionAuthentication]
+
+    def get(self, request, pk):
+
+        try:
+            block = TemplateBlock.objects.get(usage_key=pk)
+        except TemplateBlock.DoesNotExist:
+            return Response({"error": "Not found"}, status=404)
+
+        data = {
+            "display_name": block.display_name,
+            "instructions": block.instructions,
+            "rubrics": block.rubrics,
+        }
+
+        return Response(data, status=status.HTTP_200_OK)
+
+class InstructorFeedbackAPIView(APIView):
+
+    permission_classes = [permissions.IsAdminUser]
+    authentication_classes = [JwtAuthentication, SessionAuthentication]
+
+    def post(self, request, pk):
+        """
+        pk = submission_id
+        """
+
+        try:
+            submission = Submission.objects.get(id=pk)
+        except Submission.DoesNotExist:
+            return Response({"error": "Submission not found"}, status=404)
+
+        data = request.data
+
+        feedback, created = InstructorFeedback.objects.update_or_create(
+            submission=submission,
+            defaults={
+                "instructor": request.user,
+                "rubrics": data.get("rubrics", []),
+                "comment": data.get("comment", ""),
+                "status": data.get("status", "pending"),
+            }
+        )
+
+        return Response({
+            "message": "Feedback saved successfully",
+            "created": created
+        }, status=200)

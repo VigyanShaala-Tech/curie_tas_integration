@@ -149,6 +149,26 @@ class TemplateBlock(TimeStampedModel):
         auto_now_add=True, help_text="Timestamp for when the template was assigned to the block."
     )
 
+    display_name = models.CharField(
+        max_length=255,
+        default="Template Based Assignment"
+    )
+
+    template_type = models.CharField(
+        max_length=255,
+        blank=True,
+        default=""
+    )
+
+    instructions = models.TextField(
+        blank=True,
+        default=""
+    )
+
+    rubrics = models.JSONField(
+        default=list,
+        blank=True
+    )
     class Meta:
         ordering = ["sort_order"]
         verbose_name = "TAS Template Block"
@@ -271,3 +291,35 @@ class SubmissionVersion(TimeStampedModel):
         course = self.submission.course_key if self.submission else "N/A"
         usage = self.submission.usage_key if self.submission else "N/A"
         return f"{user} - {course} - {usage} - v{self.version_number}"
+
+
+class InstructorFeedback(TimeStampedModel):
+
+    submission = models.OneToOneField(
+        Submission,
+        on_delete=models.CASCADE,
+        related_name="feedback",
+    )
+    instructor = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+    )
+    rubrics = models.JSONField(
+        default=list,
+        blank=True
+    )
+    comment = models.TextField(
+        blank=True
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=[
+            ("pending", "Pending"),
+            ("approved", "Approved"),
+            ("rejected", "Rejected"),
+        ],
+        default="pending"
+    )
+
+    def __str__(self):
+        return f"{self.submission} - {self.status}"

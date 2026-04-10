@@ -1,8 +1,22 @@
 {% load i18n %}
-<div class="wrapper-comp-settings editor-with-buttons is-active tas-edit-block" id="settings-tab">
+
+<!-- ================= TABS ================= -->
+
+<div class="tas-tabs">
+    <button class="tab-btn active" data-tab="settings">Settings</button>
+    <button class="tab-btn" data-tab="rubrics">Rubrics</button>
+</div>
+
+<!-- ================= SETTINGS TAB ================= -->
+
+<div class="tab-content settings-tab active">
+    <div class="wrapper-comp-settings editor-with-buttons is-active tas-edit-block"
+     id="settings-tab"
+     data-rubrics='{{ rubrics|safe }}'>
+
     <ul class="list-input settings-list">
         
-         <li class="field comp-setting-entry is-set">
+        <li class="field comp-setting-entry is-set">
             <div class="wrapper-comp-setting">
                 <label class="label setting-label" for="tas_edit_display_name">{% trans "Display Name" %}</label>
                 <input class="input setting-input" id="tas_edit_display_name" value="{{ display_name }}" type="text">
@@ -15,7 +29,9 @@
                 <label class="label setting-label" for="tas_edit_template_type">{% trans "Template Type" %}</label>
                 <select class="input setting-input" id="tas_edit_template_type">
                     {% for template_type in assignment_template_types %}
-                        <option value="{{ template_type.id }}" {% if template_type.id == current_template_type %}selected{% endif %}>{{ template_type.name }}</option>
+                        <option value="{{ template_type.id }}" {% if template_type.id|stringformat:"s" == current_template_type %}selected{% endif %}>
+                            {{ template_type.name }}
+                        </option>
                     {% endfor %}
                 </select>
             </div>
@@ -27,7 +43,9 @@
                 <label class="label setting-label" for="tas_edit_template">{% trans "Template" %}</label>
                 <select class="input setting-input" id="tas_edit_template">
                     {% for template in assignment_templates %}
-                        <option value="{{ template.id }}" {% if template.id == current_template %}selected{% endif %}>{{ template.name }}</option>
+                        <option value="{{ template.id }}" {% if template.id|stringformat:"s" == current_template %}selected{% endif %}>
+                            {{ template.name }}
+                        </option>
                     {% endfor %}
                 </select>
             </div>
@@ -41,7 +59,35 @@
             </div>
             <span class="tip setting-help">{% trans "Write instructions for the student to follow while submitting the assignment." %}</span>
         </li>
+
     </ul>
+
+</div>
+
+</div>
+
+<!-- ================= RUBRICS TAB ================= -->
+
+<div class="tas-rubrics-section tab-content rubrics-tab">
+
+<h3>Rubrics</h3>
+
+<table class="rubric-table">
+    <thead>
+        <tr>
+            <th>Criteria</th>
+            <th>Description</th>
+            <th>Marks (numeric)</th>
+            <th>Delete</th>
+        </tr>
+    </thead>
+    <tbody class="rubric-rows"></tbody>
+</table>
+
+<button type="button" class="add-rubric button action-primary">+ Add Rubric</button>
+
+</div>
+
     <div class="xblock-actions">
         <ul>
             <li class="action-item">
@@ -52,6 +98,3 @@
             </li>
         </ul>
     </div>
-</div>
-
-
