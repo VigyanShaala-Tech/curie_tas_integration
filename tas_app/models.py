@@ -149,26 +149,14 @@ class TemplateBlock(TimeStampedModel):
         auto_now_add=True, help_text="Timestamp for when the template was assigned to the block."
     )
 
-    display_name = models.CharField(
-        max_length=255,
-        default="Template Based Assignment"
-    )
+    display_name = models.CharField(max_length=255, default="Template Based Assignment")
 
-    template_type = models.CharField(
-        max_length=255,
-        blank=True,
-        default=""
-    )
+    template_type = models.CharField(max_length=255, blank=True, default="")
 
-    instructions = models.TextField(
-        blank=True,
-        default=""
-    )
+    instructions = models.TextField(blank=True, default="")
 
-    rubrics = models.JSONField(
-        default=list,
-        blank=True
-    )
+    rubrics = models.JSONField(default=list, blank=True)
+
     class Meta:
         ordering = ["sort_order"]
         verbose_name = "TAS Template Block"
@@ -304,13 +292,8 @@ class InstructorFeedback(TimeStampedModel):
         User,
         on_delete=models.CASCADE,
     )
-    rubrics = models.JSONField(
-        default=list,
-        blank=True
-    )
-    comment = models.TextField(
-        blank=True
-    )
+    rubrics = models.JSONField(default=list, blank=True)
+    comment = models.TextField(blank=True)
     status = models.CharField(
         max_length=20,
         choices=[
@@ -318,7 +301,7 @@ class InstructorFeedback(TimeStampedModel):
             ("approved", "Approved"),
             ("rejected", "Rejected"),
         ],
-        default="pending"
+        default="pending",
     )
 
     def __str__(self):

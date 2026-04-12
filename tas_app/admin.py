@@ -33,7 +33,7 @@ class TemplateBlockAdmin(admin.ModelAdmin):
     search_fields = ("template__name", "usage_key", "course_key")
     list_filter = ("template", "course_key")
     raw_id_fields = ("template", "assigned_by")
-    ordering = ("-assigned_at","course_key", "usage_key", "sort_order")
+    ordering = ("-assigned_at", "course_key", "usage_key", "sort_order")
 
 
 @admin.register(Submission)
@@ -54,11 +54,20 @@ class SubmissionVersionAdmin(admin.ModelAdmin):
     date_hierarchy = "saved_at"
     ordering = ("-saved_at",)
 
+
 @admin.register(InstructorFeedback)
 class InstructorFeedbackAdmin(admin.ModelAdmin):
 
-    list_display = ("submission", "instructor", "status", "created",)
+    list_display = (
+        "submission",
+        "instructor",
+        "status",
+        "created",
+    )
     search_fields = ("submission__student__username",)
     list_filter = ("status",)
-    raw_id_fields = ("submission", "instructor",)
+    raw_id_fields = (
+        "submission",
+        "instructor",
+    )
     ordering = ("-created",)

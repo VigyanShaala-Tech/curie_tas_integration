@@ -9,8 +9,9 @@ from rest_framework import permissions
 from rest_framework.response import Response
 from rest_framework.exceptions import NotFound
 
-from .models import TemplateType, Template ,TemplateBlock, Submission, InstructorFeedback
+from .models import TemplateType, Template, TemplateBlock, Submission, InstructorFeedback
 from .serializers import TemplateTypeSerializer, TemplateSerializer
+
 
 class CustomizedPageNumberPagination(LazyPageNumberPagination):
     """
@@ -263,13 +264,15 @@ class LearnerSubmissionsAPIView(APIView):
 
         data = []
         for sub in page:
-            data.append({
-                "id": sub.id,
-                "username": sub.student.username,
-                "submission_date": sub.submitted_at,
-                "grade": "N/A",
-                "grading_status": sub.status,
-            })
+            data.append(
+                {
+                    "id": sub.id,
+                    "username": sub.student.username,
+                    "submission_date": sub.submitted_at,
+                    "grade": "N/A",
+                    "grading_status": sub.status,
+                }
+            )
 
         return paginator.get_paginated_response(data)
 
@@ -294,19 +297,17 @@ class LearnerSubmissionDetailAPIView(APIView):
             "username": sub.student.username,
             "course_key": str(sub.course_key),
             "usage_key": str(sub.usage_key),
-
             "submission_date": sub.submitted_at,
             "status": sub.status,
             "version": sub.version_number,
-
             # (student answers)
             "form_data": sub.form_data,
-
             # FILE
             "pdf": sub.pdf.url if sub.pdf else None,
         }
 
         return Response(data, status=status.HTTP_200_OK)
+
 
 class RubricsAPIView(APIView):
 
@@ -327,6 +328,7 @@ class RubricsAPIView(APIView):
         }
 
         return Response(data, status=status.HTTP_200_OK)
+
 
 class InstructorFeedbackAPIView(APIView):
 
@@ -352,10 +354,7 @@ class InstructorFeedbackAPIView(APIView):
                 "rubrics": data.get("rubrics", []),
                 "comment": data.get("comment", ""),
                 "status": data.get("status", "pending"),
-            }
+            },
         )
 
-        return Response({
-            "message": "Feedback saved successfully",
-            "created": created
-        }, status=200)
+        return Response({"message": "Feedback saved successfully", "created": created}, status=200)

@@ -6,28 +6,28 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('tas_app', '0001_initial'),
+        ("tas_app", "0001_initial"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='templateblock',
-            name='display_name',
-            field=models.CharField(default='Template Based Assignment', max_length=255),
+            model_name="templateblock",
+            name="display_name",
+            field=models.CharField(default="Template Based Assignment", max_length=255),
         ),
         migrations.AddField(
-            model_name='templateblock',
-            name='instructions',
-            field=models.TextField(blank=True, default=''),
+            model_name="templateblock",
+            name="instructions",
+            field=models.TextField(blank=True, default=""),
         ),
         migrations.AddField(
-            model_name='templateblock',
-            name='rubrics',
+            model_name="templateblock",
+            name="rubrics",
             field=models.JSONField(blank=True, default=list),
         ),
         migrations.AddField(
-            model_name='templateblock',
-            name='template_type',
-            field=models.CharField(blank=True, default='', max_length=255),
+            model_name="templateblock",
+            name="template_type",
+            field=models.CharField(blank=True, default="", max_length=255),
         ),
     ]

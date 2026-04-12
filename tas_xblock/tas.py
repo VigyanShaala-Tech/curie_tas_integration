@@ -15,6 +15,7 @@ from tas_app.models import TemplateBlock, Template
 from django.contrib.auth.models import User
 from lms.djangoapps.courseware.access import has_access
 
+
 def _(text):
     """
     Dummy ugettext.
@@ -68,6 +69,7 @@ class TASXBlock(XBlock):
         default=[],
         help=_("List of rubrics for evaluation"),
     )
+
     def load_resource(self, resource_path):  # pylint: disable=no-self-use
         """
         Gets the content of a resource
@@ -160,7 +162,7 @@ class TASXBlock(XBlock):
                     "rubrics": self.rubrics,
                     "assigned_by": user,
                     "sort_order": 0,
-                }
+                },
             )
 
         except Exception as e:
