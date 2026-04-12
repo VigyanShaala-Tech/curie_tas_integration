@@ -136,6 +136,9 @@ class TemplateBlock(TimeStampedModel):
         max_length=255, db_index=True, help_text="Opaque key identifying the Open edX XBlock unit."
     )
     course_key = CourseKeyField(max_length=255, db_index=True, help_text="Opaque key identifying the Open edX course.")
+    display_name = models.CharField(max_length=255, default="Template Based Assignment")
+    instructions = models.TextField(blank=True, default="")
+    rubrics = models.JSONField(default=list, blank=True)
     sort_order = models.PositiveIntegerField(
         default=0, help_text="Defines the order in which templates are rendered within a unit."
     )
@@ -148,14 +151,6 @@ class TemplateBlock(TimeStampedModel):
     assigned_at = models.DateTimeField(
         auto_now_add=True, help_text="Timestamp for when the template was assigned to the block."
     )
-
-    display_name = models.CharField(max_length=255, default="Template Based Assignment")
-
-    template_type = models.CharField(max_length=255, blank=True, default="")
-
-    instructions = models.TextField(blank=True, default="")
-
-    rubrics = models.JSONField(default=list, blank=True)
 
     class Meta:
         ordering = ["sort_order"]
@@ -189,7 +184,6 @@ class Submission(TimeStampedModel):
         (STATUS_DRAFT, "Draft"),
         (STATUS_SUBMITTED, "Submitted"),
     ]
-
     student = models.ForeignKey(
         User,
         on_delete=models.CASCADE,
@@ -282,27 +276,60 @@ class SubmissionVersion(TimeStampedModel):
 
 
 class InstructorFeedback(TimeStampedModel):
+    """
+    Model to store instructor feedback on a student's submission.
+
+    - Each submission can have one InstructorFeedback (enforced via OneToOneField).
+    - Stores rubric scores/data, instructor comments, and overall feedback status.
+    - Instructors are tracked via a ForeignKey to the User model.
+    """
 
     submission = models.OneToOneField(
         Submission,
         on_delete=models.CASCADE,
         related_name="feedback",
+        help_text="The student submission this feedback belongs to. One-to-one relationship.",
     )
     instructor = models.ForeignKey(
         User,
         on_delete=models.CASCADE,
+        help_text="Instructor who provided this feedback.",
+        related_name="given_feedbacks",
     )
-    rubrics = models.JSONField(default=list, blank=True)
-    comment = models.TextField(blank=True)
+    rubrics = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="Rubric items, ratings, or scores as structured data.",
+    )
+    comment = models.TextField(
+        blank=True,
+        help_text="Free-form instructor comments about the submission.",
+    )
+    STATUS_PENDING = "pending"
+    STATUS_APPROVED = "approved"
+    STATUS_REJECTED = "rejected"
+    STATUS_CHOICES = [
+        (STATUS_PENDING, "Pending"),
+        (STATUS_APPROVED, "Approved"),
+        (STATUS_REJECTED, "Rejected"),
+    ]
     status = models.CharField(
         max_length=20,
-        choices=[
-            ("pending", "Pending"),
-            ("approved", "Approved"),
-            ("rejected", "Rejected"),
-        ],
-        default="pending",
+        choices=STATUS_CHOICES,
+        default=STATUS_PENDING,
+        help_text="Current feedback status: pending, approved, or rejected.",
+        db_index=True,
     )
 
+    class Meta:
+        verbose_name = "Instructor Feedback"
+        verbose_name_plural = "Instructor Feedbacks"
+        ordering = ["-created"]  # Show most recently created feedback first
+
     def __str__(self):
-        return f"{self.submission} - {self.status}"
+        """
+        Returns a human-readable summary of the feedback for admin/debug.
+        """
+        submission_str = str(self.submission) if self.submission else "N/A"
+        status_str = dict(self.STATUS_CHOICES).get(self.status, self.status)
+        return f"{submission_str} (Feedback: {status_str})"

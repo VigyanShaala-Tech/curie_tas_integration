@@ -1,19 +1,18 @@
 """TO-DO: Write a description of what this XBlock is."""
 
 import os
+import json
 import pkg_resources
 from django.template import Context
 
 from xblock.core import XBlock
-from xblock.fields import Scope, String
+from xblock.fields import Scope, String, List
 from xblock.fragment import Fragment
 from xblockutils.resources import ResourceLoader
-from tas_app.models import Template, TemplateType
-from xblock.fields import Scope, String, List
-import json
-from tas_app.models import TemplateBlock, Template
+
 from django.contrib.auth.models import User
 from lms.djangoapps.courseware.access import has_access
+from tas_app.models import TemplateBlock, Template, TemplateType
 
 
 def _(text):
@@ -138,35 +137,51 @@ class TASXBlock(XBlock):
 
     @XBlock.json_handler
     def save_studio(self, data, suffix=""):
+        """
+        Handles studio (edit mode) AJAX requests to save the XBlock configuration.
 
-        self.display_name = data["display_name"]
-        self.template_type = data["template_type"]
-        self.template = data["template"]
-        self.instructions = data["instructions"]
+        Persists the main editable fields to the XBlock instance and corresponding TemplateBlock record.
+
+        Args:
+            data (dict): Dictionary containing updated XBlock settings from the Studio frontend.
+            suffix (str): Optional suffix (unused).
+
+        Returns:
+            dict: Result dictionary indicating success/failure.
+        """
+        # Extract and update XBlock fields from incoming data.
+        self.display_name = data.get("display_name", self.display_name)
+        self.template_type = data.get("template_type", self.template_type)
+        self.template = data.get("template", self.template)
+        self.instructions = data.get("instructions", self.instructions)
         self.rubrics = data.get("rubrics", [])
 
         try:
+            # Fetch associated Template object (raise clear error if not found).
             template_obj = Template.objects.get(id=self.template)
+        except Template.DoesNotExist:
+            return {"result": "error", "message": "Template not found."}
 
+        try:
+            # Identify the current user performing the save.
             user_id = self.runtime.user_id
             user = User.objects.get(id=user_id)
+        except User.DoesNotExist:
+            return {"result": "error", "message": "User not found."}
 
-            TemplateBlock.objects.update_or_create(
-                usage_key=str(self.location),
-                course_key=str(self.course_id),
-                defaults={
-                    "template": template_obj,
-                    "display_name": self.display_name,
-                    "template_type": self.template_type,
-                    "instructions": self.instructions,
-                    "rubrics": self.rubrics,
-                    "assigned_by": user,
-                    "sort_order": 0,
-                },
-            )
-
-        except Exception as e:
-            print("TemplateBlock Save Error:", e)
+        # Persist changes to TemplateBlock, creating or updating as needed.
+        TemplateBlock.objects.update_or_create(
+            usage_key=str(self.location),  # XBlock instance usage key
+            course_key=str(self.course_id),
+            defaults={
+                "template": template_obj,
+                "display_name": self.display_name,
+                "instructions": self.instructions,
+                "rubrics": self.rubrics,
+                "assigned_by": user,
+                "sort_order": 0,
+            },
+        )
 
         return {"result": "success"}
 

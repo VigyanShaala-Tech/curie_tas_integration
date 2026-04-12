@@ -1,3 +1,4 @@
+from django.utils import timezone
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from lms.djangoapps.course_api.views import LazyPageNumberPagination
@@ -6,11 +7,15 @@ from edx_rest_framework_extensions.auth.jwt.authentication import JwtAuthenticat
 from rest_framework.generics import ListCreateAPIView
 from rest_framework import status
 from rest_framework import permissions
-from rest_framework.response import Response
 from rest_framework.exceptions import NotFound
 
 from .models import TemplateType, Template, TemplateBlock, Submission, InstructorFeedback
-from .serializers import TemplateTypeSerializer, TemplateSerializer
+from .serializers import (
+    TemplateTypeSerializer,
+    TemplateSerializer,
+    StudentSubmissionCreateSerializer,
+    StudentSubmissionResponseSerializer,
+)
 
 
 class CustomizedPageNumberPagination(LazyPageNumberPagination):
@@ -358,3 +363,85 @@ class InstructorFeedbackAPIView(APIView):
         )
 
         return Response({"message": "Feedback saved successfully", "created": created}, status=200)
+
+
+class StudentSubmissionCreateAPIView(APIView):
+    """
+    Create or update the authenticated learner's submission for a TAS XBlock.
+
+    One row per (student, course_key, usage_key). Each save increments ``version_number``.
+    After ``status`` is ``submitted``, further edits are rejected (409).
+
+    Endpoint: POST /tas/api/v1/student-submission/
+
+    Expected JSON (or multipart with the same keys plus optional ``pdf`` file):
+
+    - ``course_key`` (str): Open edX course id string
+    - ``usage_key`` (str): XBlock usage key string
+    - ``form_data`` (object): field responses
+    - ``status`` (optional): ``draft`` (default) or ``submitted``
+    - ``pdf`` (optional): uploaded file when using multipart/form-data
+    """
+
+    permission_classes = [permissions.IsAuthenticated]
+    authentication_classes = [JwtAuthentication, SessionAuthentication]
+
+    def post(self, request):
+        serializer = StudentSubmissionCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        course_key = serializer.validated_data["course_key"]
+        usage_key = serializer.validated_data["usage_key"]
+        form_data = serializer.validated_data["form_data"]
+        new_status = serializer.validated_data["status"]
+        pdf_file = serializer.validated_data.get("pdf")
+
+        if not TemplateBlock.objects.filter(course_key=course_key, usage_key=usage_key).exists():
+            return Response(
+                {"detail": "No assignment is configured for this course block."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            submission = Submission.objects.get(
+                student=request.user,
+                course_key=course_key,
+                usage_key=usage_key,
+            )
+        except Submission.DoesNotExist:
+            submission = None
+
+        if submission and submission.status == Submission.STATUS_SUBMITTED:
+            return Response(
+                {"detail": "This submission is already finalized and cannot be changed."},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        now = timezone.now()
+        created = submission is None
+
+        if submission:
+            submission.form_data = form_data
+            submission.status = new_status
+            submission.version_number += 1
+            if pdf_file:
+                submission.pdf = pdf_file
+            if new_status == Submission.STATUS_SUBMITTED:
+                submission.submitted_at = now
+            submission.save()
+        else:
+            submission = Submission.objects.create(
+                student=request.user,
+                course_key=course_key,
+                usage_key=usage_key,
+                form_data=form_data,
+                status=new_status,
+                version_number=1,
+                submitted_at=now if new_status == Submission.STATUS_SUBMITTED else None,
+                pdf=pdf_file if pdf_file else None,
+            )
+
+        out = StudentSubmissionResponseSerializer(submission, context={"request": request})
+        return Response(
+            out.data,
+            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+        )
