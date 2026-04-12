@@ -60,7 +60,16 @@ setup(
         ],
         exclude=["*tests"],
     ),
-    package_data={"": ["*.html"]},  # include any Mako templates found in this repo.
+    # XBlock static assets live under tas_xblock/static/; globs like "*.html" only match
+    # the package root, so nested paths were omitted from wheels/sdists and broke production.
+    package_data={
+        "tas_xblock": [
+            "static/html/*.html",
+            "static/css/*.css",
+            "static/js/*.js",
+            "translations/*",
+        ],
+    },
     include_package_data=True,
     license="Proprietary",
     description="Django plugin to enhance advanced/extra features.",
