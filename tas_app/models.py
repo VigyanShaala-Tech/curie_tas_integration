@@ -246,6 +246,16 @@ class Submission(TimeStampedModel):
         """
         return self.status == self.STATUS_SUBMITTED
 
+    def create_version_snapshot(self):
+        """
+        Persist an immutable snapshot for the current version_number/form_data.
+        """
+        SubmissionVersion.objects.update_or_create(
+            submission=self,
+            version_number=self.version_number,
+            defaults={"form_data": self.form_data},
+        )
+
 
 class SubmissionVersion(TimeStampedModel):
     """

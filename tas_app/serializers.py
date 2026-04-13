@@ -43,17 +43,17 @@ class StudentSubmissionCreateSerializer(serializers.Serializer):
     """
 
     template_block_id = serializers.CharField()
-    course_id = serializers.CharField()
+    course_key = serializers.CharField()
     usage_key = serializers.CharField()
     form_data = serializers.JSONField()
     status = serializers.ChoiceField(choices=Submission.STATUS_CHOICES, default=Submission.STATUS_DRAFT)
     pdf = serializers.FileField(required=False, allow_null=True)
 
-    def validate_course_id(self, value):
+    def validate_course_key(self, value):
         try:
             return CourseKey.from_string(value.strip())
         except InvalidKeyError as exc:
-            raise serializers.ValidationError("Invalid course_id.") from exc
+            raise serializers.ValidationError("Invalid course_key.") from exc
 
     def validate_usage_key(self, value):
         try:
@@ -63,7 +63,7 @@ class StudentSubmissionCreateSerializer(serializers.Serializer):
 
     def validate(self, attrs):
         template_block_id = attrs.get("template_block_id")
-        course_id = attrs.get("course_id")
+        course_key = attrs.get("course_key")
         usage_key = attrs.get("usage_key")
 
         try:
@@ -71,8 +71,10 @@ class StudentSubmissionCreateSerializer(serializers.Serializer):
         except (TemplateBlock.DoesNotExist, ValueError, TypeError) as exc:
             raise serializers.ValidationError({"template_block_id": "Invalid template_block_id."}) from exc
 
-        if template_block.course_key != course_id:
-            raise serializers.ValidationError({"course_id": "course_id does not match the provided template_block_id."})
+        if template_block.course_key != course_key:
+            raise serializers.ValidationError(
+                {"course_key": "course_key does not match the provided template_block_id."}
+            )
 
         if template_block.usage_key != usage_key:
             raise serializers.ValidationError({"usage_key": "usage_key does not match the provided template_block_id."})
@@ -124,6 +126,33 @@ class StudentSubmissionResponseSerializer(serializers.ModelSerializer):
         request = self.context.get("request")
         pdf_url = obj.pdf.url
         return request.build_absolute_uri(pdf_url) if request else pdf_url
+
+
+class StudentSubmissionPatchSerializer(serializers.Serializer):
+    form_data = serializers.JSONField()
+    pdf = serializers.FileField(required=False, allow_null=True)
+
+
+class StudentSubmissionSubmitSerializer(serializers.ModelSerializer):
+    pdf_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Submission
+        fields = ["id", "status", "version_number", "submitted_at", "pdf_url"]
+        read_only_fields = fields
+
+    def get_pdf_url(self, obj):
+        if not obj.pdf:
+            return None
+        request = self.context.get("request")
+        pdf_url = obj.pdf.url
+        return request.build_absolute_uri(pdf_url) if request else pdf_url
+
+
+class SubmissionVersionSerializer(serializers.Serializer):
+    version_number = serializers.IntegerField()
+    form_data = serializers.JSONField()
+    saved_at = serializers.DateTimeField()
 
 
 class TemplateTypeBasicSerializer(serializers.ModelSerializer):

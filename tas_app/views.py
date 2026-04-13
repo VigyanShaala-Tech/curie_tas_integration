@@ -15,6 +15,9 @@ from .serializers import (
     TemplateSerializer,
     StudentSubmissionCreateSerializer,
     StudentSubmissionResponseSerializer,
+    StudentSubmissionPatchSerializer,
+    StudentSubmissionSubmitSerializer,
+    SubmissionVersionSerializer,
     TemplateBlockTemplateItemSerializer,
 )
 
@@ -438,7 +441,7 @@ class StudentSubmissionCreateAPIView(APIView):
         serializer = StudentSubmissionCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         template_block = serializer.validated_data["template_block"]
-        course_key = serializer.validated_data["course_id"]
+        course_key = serializer.validated_data["course_key"]
         usage_key = serializer.validated_data["usage_key"]
         form_data = serializer.validated_data["form_data"]
         new_status = serializer.validated_data["status"]
@@ -472,6 +475,7 @@ class StudentSubmissionCreateAPIView(APIView):
             if new_status == Submission.STATUS_SUBMITTED:
                 submission.submitted_at = now
             submission.save()
+            submission.create_version_snapshot()
         else:
             submission = Submission.objects.create(
                 student=request.user,
@@ -484,9 +488,182 @@ class StudentSubmissionCreateAPIView(APIView):
                 submitted_at=now if new_status == Submission.STATUS_SUBMITTED else None,
                 pdf=pdf_file if pdf_file else None,
             )
+            submission.create_version_snapshot()
 
         out = StudentSubmissionResponseSerializer(submission, context={"request": request})
         return Response(
             out.data,
             status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+        )
+
+
+class StudentSubmissionDetailAPIView(APIView):
+    """
+    API View for handling a student's own submission (retrieve and update/draft-save).
+    - GET: Retrieve the student's submission by primary key.
+    - PATCH: Update submission's form data or PDF, if not submitted/finalized.
+    Only the owning student can access their own submission.
+    """
+
+    permission_classes = [permissions.IsAuthenticated]
+    authentication_classes = [JwtAuthentication, SessionAuthentication]
+
+    def get_object(self, request, pk):
+        """
+        Helper to safely fetch a submission belonging to the current user.
+        Raises 404 if submission does not exist or does not belong to the user.
+        """
+        try:
+            return Submission.objects.get(pk=pk, student=request.user)
+        except Submission.DoesNotExist:
+            raise NotFound("Submission not found.")
+
+    def get(self, request, pk):
+        """
+        GET /student-submission/<pk>/
+        Returns the student's submission data in detail.
+        """
+        submission = self.get_object(request, pk)
+        serializer = StudentSubmissionResponseSerializer(submission, context={"request": request})
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    def patch(self, request, pk):
+        """
+        PATCH /student-submission/<pk>/
+        Allows the student to update form_data or PDF if the submission is still in DRAFT status.
+        Increments version and stores a new version snapshot.
+        Returns 409 if already submitted.
+        """
+        submission = self.get_object(request, pk)
+        if submission.status == Submission.STATUS_SUBMITTED:
+            return Response(
+                {"detail": "This submission is already finalized and cannot be changed."},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        # Validate partial update data (form_data and/or pdf)
+        serializer = StudentSubmissionPatchSerializer(data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+
+        # Require at least one field to be present
+        if not serializer.validated_data:
+            return Response(
+                {"detail": "At least one of form_data or pdf must be provided."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Apply updates if provided
+        if "form_data" in serializer.validated_data:
+            submission.form_data = serializer.validated_data["form_data"]
+        if "pdf" in serializer.validated_data:
+            submission.pdf = serializer.validated_data["pdf"]
+
+        # Increment version, save, and snapshot
+        submission.version_number += 1
+        submission.save()
+        submission.create_version_snapshot()
+
+        out = StudentSubmissionResponseSerializer(submission, context={"request": request})
+        return Response(out.data, status=status.HTTP_200_OK)
+
+
+class StudentSubmissionSubmitAPIView(APIView):
+    """
+    API View to submit (finalize) a draft submission.
+    - POST: Moves a DRAFT submission to SUBMITTED status, increments version, records submitted_at timestamp.
+    """
+
+    permission_classes = [permissions.IsAuthenticated]
+    authentication_classes = [JwtAuthentication, SessionAuthentication]
+
+    def post(self, request, pk):
+        """
+        POST /student-submission/<pk>/submit/
+        Finalizes the student's submission if currently in draft.
+        Returns 409 if already submitted.
+        """
+        try:
+            submission = Submission.objects.get(pk=pk, student=request.user)
+        except Submission.DoesNotExist:
+            raise NotFound("Submission not found.")
+
+        if submission.status == Submission.STATUS_SUBMITTED:
+            return Response(
+                {"detail": "This submission is already submitted."},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        # Finalize submission
+        submission.status = Submission.STATUS_SUBMITTED
+        submission.version_number += 1
+        submission.submitted_at = timezone.now()
+        submission.save()
+        submission.create_version_snapshot()
+
+        serializer = StudentSubmissionSubmitSerializer(submission, context={"request": request})
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+class StudentSubmissionVersionsAPIView(APIView):
+    """
+    API View to list all versions (history) of a student's submission.
+    - GET: Returns all version snapshots of the submission in reverse order.
+    """
+
+    permission_classes = [permissions.IsAuthenticated]
+    authentication_classes = [JwtAuthentication, SessionAuthentication]
+
+    def get(self, request, pk):
+        """
+        GET /student-submission/<pk>/versions/
+        Retrieves all versioned snapshots for the student's submission, latest first.
+        """
+        try:
+            submission = Submission.objects.get(pk=pk, student=request.user)
+        except Submission.DoesNotExist:
+            raise NotFound("Submission not found.")
+
+        versions_qs = submission.tas_submission_versions.all().order_by("-version_number")
+        serializer = SubmissionVersionSerializer(versions_qs, many=True)
+        return Response(
+            {
+                "submission_id": str(submission.id),
+                "versions": serializer.data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class StudentSubmissionPdfAPIView(APIView):
+    """
+    API View to get the PDF artifact of a student's submission (if generated).
+    - GET: Returns absolute PDF URL if available, else reports generation in progress.
+    """
+
+    permission_classes = [permissions.IsAuthenticated]
+    authentication_classes = [JwtAuthentication, SessionAuthentication]
+
+    def get(self, request, pk):
+        """
+        GET /student-submission/<pk>/pdf/
+        Returns: {"pdf_url": <url>} if PDF exists, else {"status": "generating"}
+        """
+        try:
+            submission = Submission.objects.get(pk=pk, student=request.user)
+        except Submission.DoesNotExist:
+            raise NotFound("Submission not found.")
+
+        if submission.pdf:
+            # Build absolute URL for client access
+            pdf_url = submission.pdf.url
+            absolute_pdf_url = request.build_absolute_uri(pdf_url)
+            return Response({"pdf_url": absolute_pdf_url}, status=status.HTTP_200_OK)
+
+        # PDF is not yet available (still generating or not triggered)
+        return Response(
+            {
+                "status": "generating",
+                "pdf_url": None,
+            },
+            status=status.HTTP_202_ACCEPTED,
         )

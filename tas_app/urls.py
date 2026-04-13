@@ -19,27 +19,48 @@ urlpatterns = [
         StudentSubmissionCreateAPIView.as_view(),
         name="student-submission-create",
     ),
-    # Get list of learner submissions for a given UsageKey
     path(
-        "api/v1/submissions/<path:usage_key>/",
-        LearnerSubmissionsAPIView.as_view(),
-        name="submissions",
+        "api/v1/student-submission/<int:pk>/",
+        StudentSubmissionDetailAPIView.as_view(),
+        name="student-submission-detail",
     ),
-    # Get details of a specific learner submission
     path(
-        "api/v1/submission-detail/<int:pk>/",
+        "api/v1/student-submission/<int:pk>/submit/",
+        StudentSubmissionSubmitAPIView.as_view(),
+        name="student-submission-submit",
+    ),
+    path(
+        "api/v1/student-submission/<int:pk>/pdf/",
+        StudentSubmissionPdfAPIView.as_view(),
+        name="student-submission-pdf",
+    ),
+    path(
+        "api/v1/student-submission/<int:pk>/versions/",
+        StudentSubmissionVersionsAPIView.as_view(),
+        name="student-submission-versions",
+    ),
+    # Instructor: List ALL submissions for a given usage_key (block)
+    path(
+        "api/v1/block/<path:usage_key>/submissions/",
+        LearnerSubmissionsAPIView.as_view(),
+        name="block-submissions-list",
+    ),
+    # Instructor: Retrieve details of a specific learner submission (for assessment)
+    path(
+        "api/v1/submissions/<int:pk>/",
         LearnerSubmissionDetailAPIView.as_view(),
         name="submission-detail",
     ),
-    # Get rubrics for a given template
+    # Instructor: Get rubrics for a given template block (pk is TemplateBlock id)
     path(
-        "api/v1/rubrics/<path:pk>/",
+        "api/v1/block/<int:pk>/rubrics/",
         RubricsAPIView.as_view(),
+        name="block-rubrics",
     ),
-    # Create instructor feedback for a given submission
+    # Instructor: Submit feedback for a specific learner submission (assess + feedback)
     path(
-        "api/v1/submit-feedback/<int:pk>/",
+        "api/v1/submissions/<int:pk>/feedback/",
         InstructorFeedbackAPIView.as_view(),
-        name="instructor-feedback",
+        name="submission-feedback",
     ),
 ]
