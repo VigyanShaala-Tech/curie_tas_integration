@@ -306,76 +306,133 @@ class TemplateBlockDetailView(APIView):
 
 
 class LearnerSubmissionsAPIView(APIView):
+    """
+    API view for admins to list learner submissions for a given block (usage_key).
+    - Accessible only to admin users.
+    - Returns paginated list of submission summaries for the specified usage_key.
+    """
 
     permission_classes = [permissions.IsAdminUser]
     authentication_classes = [JwtAuthentication, SessionAuthentication]
 
     def get(self, request, usage_key):
+        """
+        GET /api/v1/block/<usage_key>/submissions/
+        Returns a paginated list of submissions for the specified block.
+        """
+        # Use select_related to reduce DB queries when accessing related User
+        submissions_qs = (
+            Submission.objects.filter(usage_key=usage_key).select_related("student").order_by("-submitted_at")
+        )
 
-        submissions = Submission.objects.filter(usage_key=usage_key).order_by("-submitted_at")
-
+        # Use custom paginator for paginating results
         paginator = CustomizedPageNumberPagination()
-        page = paginator.paginate_queryset(submissions, request)
+        page = paginator.paginate_queryset(submissions_qs, request)
 
-        data = []
-        for sub in page:
-            data.append(
-                {
-                    "id": sub.id,
-                    "username": sub.student.username,
-                    "submission_date": sub.submitted_at,
-                    "grade": "N/A",
-                    "grading_status": sub.status,
-                }
-            )
+        # Build the summary response for each submission in the page
+        results = [
+            {
+                "id": sub.id,
+                "username": sub.student.username,
+                "submission_date": sub.submitted_at,
+                "grade": "N/A",  # Placeholder; update if grading is implemented
+                "grading_status": sub.status,
+            }
+            for sub in page
+        ]
 
-        return paginator.get_paginated_response(data)
+        # Return a paginated response
+        return paginator.get_paginated_response(results)
 
 
 class LearnerSubmissionDetailAPIView(APIView):
+    """
+    API View to retrieve detailed information about a specific learner's submission.
+    - Only accessible by admin users.
+    - Returns all relevant fields, including student info, keys, answers, and PDF link.
+    """
 
+    # Enforce admin-only permissions and JWT/session authentication
     permission_classes = [permissions.IsAdminUser]
     authentication_classes = [JwtAuthentication, SessionAuthentication]
 
     def get(self, request, pk):
         """
-        pk = submission ID
+        GET /api/v1/submissions/<pk>/
+        Returns detailed information about the specified submission.
+
+        Response Example:
+        {
+            "id": 123,
+            "username": "student1",
+            "course_key": "course-v1:edX+Demo+2024_T1",
+            "usage_key": "block-v1:edX+Demo+2024_T1+type@tas+block@abc123",
+            "submission_date": "2024-06-07T14:34:56Z",
+            "status": "submitted",
+            "version": 2,
+            "form_data": {...},
+            "pdf": "https://.../media/submission/123/file.pdf"
+        }
         """
-
+        # Use select_related to optimize query for student (User) object
         try:
-            sub = Submission.objects.get(id=pk)
+            submission = Submission.objects.select_related("student").get(id=pk)
         except Submission.DoesNotExist:
-            return Response({"error": "Submission not found"}, status=404)
+            return Response({"detail": "Submission not found"}, status=status.HTTP_404_NOT_FOUND)
 
+        # Build absolute PDF URL if a file exists, else None
+        pdf_url = submission.pdf.url if submission.pdf else None
+
+        # Prepare response payload
         data = {
-            "id": sub.id,
-            "username": sub.student.username,
-            "course_key": str(sub.course_key),
-            "usage_key": str(sub.usage_key),
-            "submission_date": sub.submitted_at,
-            "status": sub.status,
-            "version": sub.version_number,
-            # (student answers)
-            "form_data": sub.form_data,
-            # FILE
-            "pdf": sub.pdf.url if sub.pdf else None,
+            "id": submission.id,
+            "username": submission.student.username,
+            "course_key": str(submission.course_key),
+            "usage_key": str(submission.usage_key),
+            "submission_date": submission.submitted_at,
+            "status": submission.status,
+            "version": submission.version_number,
+            "form_data": submission.form_data,
+            "pdf": pdf_url,
         }
 
         return Response(data, status=status.HTTP_200_OK)
 
 
 class RubricsAPIView(APIView):
+    """
+    API View for instructors/admins to retrieve rubric information for a given TemplateBlock.
+    - Only accessible by admin users (course staff, staff, or superusers).
+    - Returns the block's display name, instructions, and rubric definitions.
 
+    Endpoint: GET /api/v1/block/<usage_key>/rubrics/
+
+    Response Example:
+        {
+            "display_name": "Peer Assessment Block",
+            "instructions": "Follow these steps ...",
+            "rubrics": [{...}, ...]
+        }
+    """
+
+    # Restrict access to admin users only.
     permission_classes = [permissions.IsAdminUser]
     authentication_classes = [JwtAuthentication, SessionAuthentication]
 
-    def get(self, request, pk):
-
+    def get(self, request, usage_key):
+        """
+        Retrieve rubrics and metadata for the given TemplateBlock by usage_key.
+        Returns 404 if the block does not exist.
+        """
+        # Use .only() to fetch just the needed fields for optimization
         try:
-            block = TemplateBlock.objects.get(usage_key=pk)
+            block = TemplateBlock.objects.only("display_name", "instructions", "rubrics").get(usage_key=usage_key)
         except TemplateBlock.DoesNotExist:
-            return Response({"error": "Not found"}, status=404)
-
+            # Return a clear 404 response if not found
+            return Response(
+                {"detail": "Template block with specified usage_key not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
         data = {
             "display_name": block.display_name,
             "instructions": block.instructions,
@@ -386,33 +443,65 @@ class RubricsAPIView(APIView):
 
 
 class InstructorFeedbackAPIView(APIView):
+    """
+    API View for instructors/admins to submit feedback for a specific learner's submission.
 
+    - Access restricted to admin users (course staff, staff, or superusers).
+    - Creates a new InstructorFeedback record or updates an existing one for the given submission.
+
+    Endpoint: POST /api/v1/submissions/<pk>/feedback/
+
+    Sample Request:
+        {
+            "rubrics": [...],       # (list) Rubric assessment details
+            "comment": "",          # (str) Free text instructor comment
+            "status": "pending"     # (str, optional) Status for the feedback ("pending", etc.)
+        }
+
+    Response:
+        {
+            "message": "...",
+            "created": true         # (bool) True if new feedback was created, False if updated
+        }
+    """
+
+    # Ensure only admin users can access this view
     permission_classes = [permissions.IsAdminUser]
     authentication_classes = [JwtAuthentication, SessionAuthentication]
 
     def post(self, request, pk):
         """
-        pk = submission_id
+        Creates or updates InstructorFeedback for the specified Submission.
+        Returns appropriate response if submission does not exist.
         """
-
+        # Validate existence of the referenced Submission
         try:
-            submission = Submission.objects.get(id=pk)
+            submission = Submission.objects.only("id").get(id=pk)
         except Submission.DoesNotExist:
-            return Response({"error": "Submission not found"}, status=404)
+            return Response({"detail": "Submission not found."}, status=status.HTTP_404_NOT_FOUND)
 
+        # Extract input data from request
         data = request.data
 
+        # Use update_or_create for atomic create or update logic
         feedback, created = InstructorFeedback.objects.update_or_create(
             submission=submission,
             defaults={
                 "instructor": request.user,
-                "rubrics": data.get("rubrics", []),
+                "rubrics": data.get("rubrics") if data.get("rubrics") is not None else [],
                 "comment": data.get("comment", ""),
                 "status": data.get("status", "pending"),
             },
         )
 
-        return Response({"message": "Feedback saved successfully", "created": created}, status=200)
+        # Return explicit success response with creation status
+        return Response(
+            {
+                "message": "Feedback saved successfully.",
+                "created": created,
+            },
+            status=status.HTTP_200_OK,
+        )
 
 
 class StudentSubmissionCreateAPIView(APIView):

@@ -53,7 +53,7 @@ urlpatterns = [
     ),
     # Instructor: Get rubrics for a given template block (pk is TemplateBlock id)
     path(
-        "api/v1/block/<int:pk>/rubrics/",
+        "api/v1/block/<path:usage_key>/rubrics/",
         RubricsAPIView.as_view(),
         name="block-rubrics",
     ),
