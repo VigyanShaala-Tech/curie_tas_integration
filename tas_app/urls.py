@@ -1,5 +1,20 @@
 from django.urls import path
-from .views import *
+from .views import (
+    InstructorFeedbackAPIView,
+    LearnerSubmissionDetailAPIView,
+    LearnerSubmissionsAPIView,
+    RubricsAPIView,
+    StudentSubmissionCreateAPIView,
+    StudentSubmissionDetailAPIView,
+    StudentSubmissionPdfAPIView,
+    StudentSubmissionSubmitAPIView,
+    StudentSubmissionVersionsAPIView,
+    TemplateBlockDetailView,
+    TemplateTypesDetailView,
+    TemplateTypesListView,
+    TemplatesDetailView,
+    TemplatesListView,
+)
 
 app_name = "tas_app"
 

@@ -121,8 +121,11 @@ class Template(TimeStampedModel):
 
 class TemplateBlock(TimeStampedModel):
     """
-    Represents the association between a TAS template and an Open edX XBlock unit.
-    Enables flexible many-to-many mapping: a template can be linked to multiple units, and a unit can have multiple templates.
+    Represents the assignment configuration for a single Open edX unit.
+
+    A unit (usage_key + course_key) maps to exactly one TemplateBlock, which
+    references a template and stores instructor-visible metadata (rubrics,
+    instructions, display_name, ordering).
     """
 
     template = models.ForeignKey(
@@ -174,7 +177,7 @@ class Submission(TimeStampedModel):
     Stores one student's submission for a specific template block.
 
     Enforces:
-      - Only one submission per (student, template_block) pair.
+      - Only one submission per (student, course_key, usage_key) tuple.
       - Drafts can be revised; only one final submission is allowed.
       - Tracks current version and PDF snapshot if generated.
     """

@@ -2,7 +2,7 @@ from opaque_keys import InvalidKeyError
 from opaque_keys.edx.keys import CourseKey, UsageKey
 from rest_framework import serializers
 
-from .models import Submission, Template, TemplateType, TemplateBlock
+from .models import InstructorFeedback, Submission, Template, TemplateType, TemplateBlock
 
 
 class TemplateTypeSerializer(serializers.ModelSerializer):
@@ -42,7 +42,7 @@ class StudentSubmissionCreateSerializer(serializers.Serializer):
     for a course / XBlock usage key (one row per student per block).
     """
 
-    template_block_id = serializers.CharField()
+    template_block_id = serializers.IntegerField()
     course_key = serializers.CharField()
     usage_key = serializers.CharField()
     form_data = serializers.JSONField()
@@ -129,8 +129,13 @@ class StudentSubmissionResponseSerializer(serializers.ModelSerializer):
 
 
 class StudentSubmissionPatchSerializer(serializers.Serializer):
-    form_data = serializers.JSONField()
+    form_data = serializers.JSONField(required=False)
     pdf = serializers.FileField(required=False, allow_null=True)
+
+    def validate(self, attrs):
+        if not attrs:
+            raise serializers.ValidationError("At least one of form_data or pdf must be provided.")
+        return attrs
 
 
 class StudentSubmissionSubmitSerializer(serializers.ModelSerializer):
@@ -212,3 +217,18 @@ class TemplateBlockTemplateItemSerializer(serializers.ModelSerializer):
         Returns the TemplateBlock primary key (id) as a string.
         """
         return str(obj.id)
+
+
+class InstructorFeedbackUpsertSerializer(serializers.Serializer):
+    """Validate instructor feedback payload for create/update operations."""
+
+    rubrics = serializers.JSONField(required=False)
+    comment = serializers.CharField(required=False, allow_blank=True)
+    status = serializers.ChoiceField(choices=InstructorFeedback.STATUS_CHOICES, required=False)
+
+    def validate_rubrics(self, value):
+        if value is None:
+            return []
+        if not isinstance(value, list):
+            raise serializers.ValidationError("rubrics must be a list.")
+        return value

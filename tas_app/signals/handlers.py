@@ -1,6 +1,10 @@
+import logging
+
 from django.dispatch import receiver
 from xmodule.modulestore.django import SignalHandler
 from tas_app.models import TemplateBlock, Submission, SubmissionVersion, InstructorFeedback
+
+log = logging.getLogger(__name__)
 
 
 @receiver(SignalHandler.item_deleted)
@@ -11,23 +15,15 @@ def delete_tas_data_on_unit_delete(**kwargs):
         return
 
     block_id = str(usage_key)
-    print("TAS DELETE TRIGGERED:", block_id)
+    log.info("TAS delete triggered for usage_key=%s", block_id)
 
     try:
-        # 1. Delete Instructor Feedback (via submission)
         submissions = Submission.objects.filter(usage_key=block_id)
-
-        for sub in submissions:
-            InstructorFeedback.objects.filter(submission=sub).delete()
-            SubmissionVersion.objects.filter(submission=sub).delete()
-
-        # 2. Delete Submissions
+        submission_ids = list(submissions.values_list("id", flat=True))
+        InstructorFeedback.objects.filter(submission_id__in=submission_ids).delete()
+        SubmissionVersion.objects.filter(submission_id__in=submission_ids).delete()
         submissions.delete()
-
-        # 3. Delete TemplateBlock
         TemplateBlock.objects.filter(usage_key=block_id).delete()
-
-        print("TAS DATA DELETED SUCCESSFULLY")
-
-    except Exception as e:
-        print("TAS DELETE ERROR:", str(e))
+        log.info("TAS data deleted for usage_key=%s", block_id)
+    except Exception:  # pylint: disable=broad-except
+        log.exception("TAS delete failed for usage_key=%s", block_id)

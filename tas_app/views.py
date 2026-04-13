@@ -1,4 +1,6 @@
 from django.utils import timezone
+from django.db import IntegrityError, transaction
+from django.shortcuts import get_object_or_404
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from lms.djangoapps.course_api.views import LazyPageNumberPagination
@@ -11,6 +13,7 @@ from rest_framework.exceptions import NotFound
 
 from .models import TemplateType, Template, TemplateBlock, Submission, InstructorFeedback
 from .serializers import (
+    InstructorFeedbackUpsertSerializer,
     TemplateTypeSerializer,
     TemplateSerializer,
     StudentSubmissionCreateSerializer,
@@ -121,10 +124,8 @@ class TemplateTypesDetailView(APIView):
         if not template_type.is_active:
             return Response({"detail": "TemplateType is already inactive."}, status=status.HTTP_400_BAD_REQUEST)
         template_type.is_active = False
-        template_type.save()
-        return Response(
-            {"detail": "TemplateType has been deactivated (soft deleted)."}, status=status.HTTP_204_NO_CONTENT
-        )
+        template_type.save(update_fields=["is_active", "modified"])
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class TemplatesListView(ListCreateAPIView):
@@ -255,8 +256,8 @@ class TemplatesDetailView(APIView):
         if not template.is_active:
             return Response({"detail": "Template is already inactive."}, status=status.HTTP_400_BAD_REQUEST)
         template.is_active = False
-        template.save()
-        return Response({"detail": "Template has been deactivated (soft deleted)."}, status=status.HTTP_204_NO_CONTENT)
+        template.save(update_fields=["is_active", "modified"])
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class TemplateBlockDetailView(APIView):
@@ -285,12 +286,10 @@ class TemplateBlockDetailView(APIView):
         - Returns a 404 response if the TemplateBlock does not exist.
         - Serializes the TemplateBlock including its template.
         """
-        try:
-            # Fetch the TemplateBlock by usage_key
-            template_block = TemplateBlock.objects.get(usage_key=usage_key)
-        except TemplateBlock.DoesNotExist:
-            # If not found, return 404 error
-            return Response({"detail": "Template block not found."}, status=status.HTTP_404_NOT_FOUND)
+        template_block = get_object_or_404(
+            TemplateBlock.objects.select_related("template", "template__template_type"),
+            usage_key=usage_key,
+        )
 
         # Serialize the TemplateBlock with embedded template info,
         # and provide the request context for absolute URLs
@@ -428,7 +427,6 @@ class RubricsAPIView(APIView):
         try:
             block = TemplateBlock.objects.only("display_name", "instructions", "rubrics").get(usage_key=usage_key)
         except TemplateBlock.DoesNotExist:
-            # Return a clear 404 response if not found
             return Response(
                 {"detail": "Template block with specified usage_key not found."},
                 status=status.HTTP_404_NOT_FOUND,
@@ -480,17 +478,18 @@ class InstructorFeedbackAPIView(APIView):
         except Submission.DoesNotExist:
             return Response({"detail": "Submission not found."}, status=status.HTTP_404_NOT_FOUND)
 
-        # Extract input data from request
-        data = request.data
+        serializer = InstructorFeedbackUpsertSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        validated_data = serializer.validated_data
 
         # Use update_or_create for atomic create or update logic
         feedback, created = InstructorFeedback.objects.update_or_create(
             submission=submission,
             defaults={
                 "instructor": request.user,
-                "rubrics": data.get("rubrics") if data.get("rubrics") is not None else [],
-                "comment": data.get("comment", ""),
-                "status": data.get("status", "pending"),
+                "rubrics": validated_data.get("rubrics", []),
+                "comment": validated_data.get("comment", ""),
+                "status": validated_data.get("status", InstructorFeedback.STATUS_PENDING),
             },
         )
 
@@ -536,54 +535,91 @@ class StudentSubmissionCreateAPIView(APIView):
         new_status = serializer.validated_data["status"]
         pdf_file = serializer.validated_data.get("pdf")
 
-        try:
-            submission = Submission.objects.get(
-                student=request.user,
-                course_key=course_key,
-                usage_key=usage_key,
-            )
-        except Submission.DoesNotExist:
-            submission = None
-
-        if submission and submission.status == Submission.STATUS_SUBMITTED:
+        submission, created = self._create_or_update_submission(
+            request_user=request.user,
+            template_block=template_block,
+            course_key=course_key,
+            usage_key=usage_key,
+            form_data=form_data,
+            new_status=new_status,
+            pdf_file=pdf_file,
+        )
+        if submission is None:
             return Response(
                 {"detail": "This submission is already finalized and cannot be changed."},
                 status=status.HTTP_409_CONFLICT,
             )
-
-        now = timezone.now()
-        created = submission is None
-
-        if submission:
-            submission.template_block = template_block
-            submission.form_data = form_data
-            submission.status = new_status
-            submission.version_number += 1
-            if pdf_file:
-                submission.pdf = pdf_file
-            if new_status == Submission.STATUS_SUBMITTED:
-                submission.submitted_at = now
-            submission.save()
-            submission.create_version_snapshot()
-        else:
-            submission = Submission.objects.create(
-                student=request.user,
-                template_block=template_block,
-                course_key=course_key,
-                usage_key=usage_key,
-                form_data=form_data,
-                status=new_status,
-                version_number=1,
-                submitted_at=now if new_status == Submission.STATUS_SUBMITTED else None,
-                pdf=pdf_file if pdf_file else None,
-            )
-            submission.create_version_snapshot()
 
         out = StudentSubmissionResponseSerializer(submission, context={"request": request})
         return Response(
             out.data,
             status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
         )
+
+    @staticmethod
+    def _create_or_update_submission(
+        request_user, template_block, course_key, usage_key, form_data, new_status, pdf_file
+    ):
+        now = timezone.now()
+
+        try:
+            with transaction.atomic():
+                submission = (
+                    Submission.objects.select_for_update()
+                    .filter(student=request_user, course_key=course_key, usage_key=usage_key)
+                    .first()
+                )
+                created = submission is None
+
+                if submission and submission.status == Submission.STATUS_SUBMITTED:
+                    return None, False
+
+                if submission:
+                    submission.template_block = template_block
+                    submission.form_data = form_data
+                    submission.status = new_status
+                    submission.version_number += 1
+                    if pdf_file:
+                        submission.pdf = pdf_file
+                    if new_status == Submission.STATUS_SUBMITTED:
+                        submission.submitted_at = now
+                    submission.save()
+                else:
+                    submission = Submission.objects.create(
+                        student=request_user,
+                        template_block=template_block,
+                        course_key=course_key,
+                        usage_key=usage_key,
+                        form_data=form_data,
+                        status=new_status,
+                        version_number=1,
+                        submitted_at=now if new_status == Submission.STATUS_SUBMITTED else None,
+                        pdf=pdf_file if pdf_file else None,
+                    )
+
+                submission.create_version_snapshot()
+                return submission, created
+        except IntegrityError:
+            # Retry once in case of race on unique constraint.
+            with transaction.atomic():
+                submission = Submission.objects.select_for_update().get(
+                    student=request_user,
+                    course_key=course_key,
+                    usage_key=usage_key,
+                )
+                if submission.status == Submission.STATUS_SUBMITTED:
+                    return None, False
+                submission.template_block = template_block
+                submission.form_data = form_data
+                submission.status = new_status
+                submission.version_number += 1
+                if pdf_file:
+                    submission.pdf = pdf_file
+                if new_status == Submission.STATUS_SUBMITTED:
+                    submission.submitted_at = now
+                submission.save()
+                submission.create_version_snapshot()
+                return submission, False
 
 
 class StudentSubmissionDetailAPIView(APIView):
@@ -633,13 +669,6 @@ class StudentSubmissionDetailAPIView(APIView):
         # Validate partial update data (form_data and/or pdf)
         serializer = StudentSubmissionPatchSerializer(data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
-
-        # Require at least one field to be present
-        if not serializer.validated_data:
-            return Response(
-                {"detail": "At least one of form_data or pdf must be provided."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
 
         # Apply updates if provided
         if "form_data" in serializer.validated_data:
