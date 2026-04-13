@@ -8,6 +8,11 @@ urlpatterns = [
     path("api/v1/template-types/<int:pk>/", TemplateTypesDetailView.as_view(), name="template-types-detail"),
     path("api/v1/templates/", TemplatesListView.as_view(), name="templates-list"),
     path("api/v1/templates/<int:pk>/", TemplatesDetailView.as_view(), name="templates-detail"),
+    path(
+        "api/v1/blocks/<path:usage_key>/templates/",
+        TemplateBlockDetailView.as_view(),
+        name="block-templates",
+    ),
     # Create or update the current student's submission (draft / submit)
     path(
         "api/v1/student-submission/",
@@ -16,7 +21,7 @@ urlpatterns = [
     ),
     # Get list of learner submissions for a given UsageKey
     path(
-        "api/v1/submissions/<path:pk>/",
+        "api/v1/submissions/<path:usage_key>/",
         LearnerSubmissionsAPIView.as_view(),
         name="submissions",
     ),

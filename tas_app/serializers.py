@@ -2,7 +2,7 @@ from opaque_keys import InvalidKeyError
 from opaque_keys.edx.keys import CourseKey, UsageKey
 from rest_framework import serializers
 
-from .models import Submission, Template, TemplateType
+from .models import Submission, Template, TemplateType, TemplateBlock
 
 
 class TemplateTypeSerializer(serializers.ModelSerializer):
@@ -42,17 +42,18 @@ class StudentSubmissionCreateSerializer(serializers.Serializer):
     for a course / XBlock usage key (one row per student per block).
     """
 
-    course_key = serializers.CharField()
+    template_block_id = serializers.CharField()
+    course_id = serializers.CharField()
     usage_key = serializers.CharField()
     form_data = serializers.JSONField()
     status = serializers.ChoiceField(choices=Submission.STATUS_CHOICES, default=Submission.STATUS_DRAFT)
     pdf = serializers.FileField(required=False, allow_null=True)
 
-    def validate_course_key(self, value):
+    def validate_course_id(self, value):
         try:
             return CourseKey.from_string(value.strip())
         except InvalidKeyError as exc:
-            raise serializers.ValidationError("Invalid course_key.") from exc
+            raise serializers.ValidationError("Invalid course_id.") from exc
 
     def validate_usage_key(self, value):
         try:
@@ -60,29 +61,125 @@ class StudentSubmissionCreateSerializer(serializers.Serializer):
         except InvalidKeyError as exc:
             raise serializers.ValidationError("Invalid usage_key.") from exc
 
+    def validate(self, attrs):
+        template_block_id = attrs.get("template_block_id")
+        course_id = attrs.get("course_id")
+        usage_key = attrs.get("usage_key")
+
+        try:
+            template_block = TemplateBlock.objects.get(pk=template_block_id)
+        except (TemplateBlock.DoesNotExist, ValueError, TypeError) as exc:
+            raise serializers.ValidationError({"template_block_id": "Invalid template_block_id."}) from exc
+
+        if template_block.course_key != course_id:
+            raise serializers.ValidationError({"course_id": "course_id does not match the provided template_block_id."})
+
+        if template_block.usage_key != usage_key:
+            raise serializers.ValidationError({"usage_key": "usage_key does not match the provided template_block_id."})
+
+        attrs["template_block"] = template_block
+        return attrs
+
 
 class StudentSubmissionResponseSerializer(serializers.ModelSerializer):
     """Serialized Submission returned after a successful create/update."""
+
+    template_block_id = serializers.SerializerMethodField()
+    student_id = serializers.SerializerMethodField()
+    course_id = serializers.SerializerMethodField()
+    pdf_url = serializers.SerializerMethodField()
+    created_at = serializers.DateTimeField(source="created", read_only=True)
+    updated_at = serializers.DateTimeField(source="modified", read_only=True)
 
     class Meta:
         model = Submission
         fields = [
             "id",
-            "course_key",
+            "template_block_id",
+            "student_id",
+            "course_id",
             "usage_key",
             "form_data",
             "status",
             "version_number",
             "submitted_at",
-            "pdf",
+            "pdf_url",
+            "created_at",
+            "updated_at",
         ]
-        read_only_fields = [
-            "id",
-            "course_key",
-            "usage_key",
-            "form_data",
-            "status",
-            "version_number",
-            "submitted_at",
-            "pdf",
-        ]
+        read_only_fields = fields
+
+    def get_template_block_id(self, obj):
+        return str(obj.template_block_id) if obj.template_block_id else ""
+
+    def get_student_id(self, obj):
+        return obj.student.username if obj.student_id else ""
+
+    def get_course_id(self, obj):
+        return str(obj.course_key)
+
+    def get_pdf_url(self, obj):
+        if not obj.pdf:
+            return ""
+        request = self.context.get("request")
+        pdf_url = obj.pdf.url
+        return request.build_absolute_uri(pdf_url) if request else pdf_url
+
+
+class TemplateTypeBasicSerializer(serializers.ModelSerializer):
+    """
+    Basic serializer for TemplateType model.
+    Serializes only the 'slug' and 'name' fields for concise, nested usage.
+    """
+
+    class Meta:
+        model = TemplateType
+        fields = ["slug", "name"]
+
+
+class TemplateBasicSerializer(serializers.ModelSerializer):
+    """
+    Basic serializer for the Template model, appropriate for nested use or lists.
+    - Embeds a simplified TemplateType.
+    - Adds computed absolute thumbnail URL if a thumbnail exists.
+    """
+
+    template_type = TemplateTypeBasicSerializer(read_only=True)
+    thumbnail_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Template
+        fields = ["id", "name", "template_type", "thumbnail_url", "image_width", "image_height"]
+
+    def get_thumbnail_url(self, obj):
+        """
+        Returns the absolute thumbnail URL if available, else None.
+        Uses request context to make the URL absolute.
+        """
+        if not obj.thumbnail:
+            return None
+        request = self.context.get("request")
+        thumbnail_url = obj.thumbnail.url
+        return request.build_absolute_uri(thumbnail_url) if request else thumbnail_url
+
+
+class TemplateBlockTemplateItemSerializer(serializers.ModelSerializer):
+    """
+    Serializer for TemplateBlock with embedded template detail.
+    - Returns the block's primary key as a string for frontend safety.
+    - Includes 'sort_order' to handle block ordering.
+    - Embeds the basic template info.
+    """
+
+    template_block_id = serializers.SerializerMethodField()
+    template = TemplateBasicSerializer(read_only=True)
+
+    class Meta:
+        model = TemplateBlock
+        fields = ["template_block_id", "sort_order", "template"]
+
+    def get_template_block_id(self, obj):
+        """
+        Returns the TemplateBlock primary key (id) as a string.
+        """
+        return str(obj.id)

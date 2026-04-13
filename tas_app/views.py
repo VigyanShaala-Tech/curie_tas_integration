@@ -15,6 +15,7 @@ from .serializers import (
     TemplateSerializer,
     StudentSubmissionCreateSerializer,
     StudentSubmissionResponseSerializer,
+    TemplateBlockTemplateItemSerializer,
 )
 
 
@@ -255,14 +256,60 @@ class TemplatesDetailView(APIView):
         return Response({"detail": "Template has been deactivated (soft deleted)."}, status=status.HTTP_204_NO_CONTENT)
 
 
+class TemplateBlockDetailView(APIView):
+    """
+    API view to retrieve details for a TemplateBlock associated with the given usage_key.
+
+    - Only accessible to authenticated users.
+    - Returns the TemplateBlock's usage_key, course_id, and detailed template info.
+
+    Endpoint: GET /tas/api/v1/blocks/<usage_key>/templates/
+
+    Response:
+        {
+            "usage_key": "<str:usage_key>",
+            "course_id": "<str:course_key>",
+            "templates": { ... }
+        }
+    """
+
+    permission_classes = [permissions.IsAuthenticated]
+    authentication_classes = [JwtAuthentication, SessionAuthentication]
+
+    def get(self, request, usage_key):
+        """
+        Retrieve the details of the TemplateBlock for the specified usage_key.
+        - Returns a 404 response if the TemplateBlock does not exist.
+        - Serializes the TemplateBlock including its template.
+        """
+        try:
+            # Fetch the TemplateBlock by usage_key
+            template_block = TemplateBlock.objects.get(usage_key=usage_key)
+        except TemplateBlock.DoesNotExist:
+            # If not found, return 404 error
+            return Response({"detail": "Template block not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        # Serialize the TemplateBlock with embedded template info,
+        # and provide the request context for absolute URLs
+        templates_data = TemplateBlockTemplateItemSerializer(template_block, context={"request": request}).data
+
+        # Structure the response dictionary
+        data = {
+            "usage_key": str(template_block.usage_key),
+            "course_id": str(template_block.course_key),
+            "templates": templates_data,
+        }
+        return Response(data, status=status.HTTP_200_OK)
+
+
 class LearnerSubmissionsAPIView(APIView):
 
     permission_classes = [permissions.IsAdminUser]
     authentication_classes = [JwtAuthentication, SessionAuthentication]
 
-    def get(self, request, pk):
+    def get(self, request, usage_key):
 
-        submissions = Submission.objects.filter(usage_key=pk).order_by("-submitted_at")
+        submissions = Submission.objects.filter(usage_key=usage_key).order_by("-submitted_at")
 
         paginator = CustomizedPageNumberPagination()
         page = paginator.paginate_queryset(submissions, request)
@@ -376,6 +423,7 @@ class StudentSubmissionCreateAPIView(APIView):
 
     Expected JSON (or multipart with the same keys plus optional ``pdf`` file):
 
+    - ``template_block_id`` (str): TemplateBlock primary key
     - ``course_key`` (str): Open edX course id string
     - ``usage_key`` (str): XBlock usage key string
     - ``form_data`` (object): field responses
@@ -389,17 +437,12 @@ class StudentSubmissionCreateAPIView(APIView):
     def post(self, request):
         serializer = StudentSubmissionCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        course_key = serializer.validated_data["course_key"]
+        template_block = serializer.validated_data["template_block"]
+        course_key = serializer.validated_data["course_id"]
         usage_key = serializer.validated_data["usage_key"]
         form_data = serializer.validated_data["form_data"]
         new_status = serializer.validated_data["status"]
         pdf_file = serializer.validated_data.get("pdf")
-
-        if not TemplateBlock.objects.filter(course_key=course_key, usage_key=usage_key).exists():
-            return Response(
-                {"detail": "No assignment is configured for this course block."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
 
         try:
             submission = Submission.objects.get(
@@ -420,6 +463,7 @@ class StudentSubmissionCreateAPIView(APIView):
         created = submission is None
 
         if submission:
+            submission.template_block = template_block
             submission.form_data = form_data
             submission.status = new_status
             submission.version_number += 1
@@ -431,6 +475,7 @@ class StudentSubmissionCreateAPIView(APIView):
         else:
             submission = Submission.objects.create(
                 student=request.user,
+                template_block=template_block,
                 course_key=course_key,
                 usage_key=usage_key,
                 form_data=form_data,

@@ -160,6 +160,7 @@ class TemplateBlock(TimeStampedModel):
             models.Index(fields=["usage_key", "course_key"]),
             models.Index(fields=["template", "course_key"]),
         ]
+        unique_together = [("usage_key", "course_key")]
 
     def __str__(self):
         """
@@ -190,6 +191,12 @@ class Submission(TimeStampedModel):
         related_name="tas_submissions",
         db_index=True,
         help_text="Reference to submitting student (Open edX user).",
+    )
+    template_block = models.ForeignKey(
+        TemplateBlock,
+        on_delete=models.CASCADE,
+        db_index=True,
+        help_text="Reference to the template block this submission belongs to.",
     )
     course_key = CourseKeyField(
         max_length=255, db_index=True, help_text="Open edX course key in which this submission occurs."
