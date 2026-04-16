@@ -4,7 +4,7 @@ import os
 import json
 import pkg_resources
 from django.template import Context
-
+from django.conf import settings
 from xblock.core import XBlock
 from xblock.fields import Scope, String, List
 from xblock.fragment import Fragment
@@ -12,7 +12,7 @@ from xblockutils.resources import ResourceLoader
 
 from django.contrib.auth.models import User
 from lms.djangoapps.courseware.access import has_access
-from tas_app.models import TemplateBlock, Template, TemplateType
+from tas_app.models import TemplateBlock, Template, TemplateType, Submission
 
 
 def _(text):
@@ -88,6 +88,18 @@ class TASXBlock(XBlock):
             i18n_service=self.runtime.service(self, "i18n"),
         )
 
+    def get_assigment_status(self):
+        """
+        Get student assignment submission status.
+        """
+        assigment_pdf_url = None
+        try:
+            submission = Submission.objects.get(usage_key=self.location, student=self.runtime.get_real_user())
+            assigment_pdf_url = submission.pdf.url if submission.pdf else None
+        except Exception as e:
+            return "not_submitted", None
+        return submission.status, assigment_pdf_url
+
     def student_view(self, context=None):
         """
         The primary view of the XBlock, shown to students
@@ -95,13 +107,20 @@ class TASXBlock(XBlock):
         """
         user = self.runtime.get_real_user()
         is_course_staff = has_access(user, "staff", self.course_id)
-
+        TAS_MICROFRONTEND_URL = getattr(settings, "TAS_MICROFRONTEND_URL", "http://apps.local.openedx.io:2022")
+        assigment_submission_url = f"{TAS_MICROFRONTEND_URL}/submission/{self.location}"
+        assigment_review_url = f"{TAS_MICROFRONTEND_URL}/instructor/grade-submissions/{self.location}"
+        assigment_status, assigment_pdf_url = self.get_assigment_status()
         context = {
             "display_name": self.display_name,
             "template_type": self.template_type,
             "template": self.template,
             "instructions": self.instructions,
             "is_course_staff": is_course_staff,
+            "assigment_submission_url": assigment_submission_url,
+            "assigment_review_url": assigment_review_url,
+            "assigment_status": assigment_status,
+            "assigment_pdf_url": assigment_pdf_url,
         }
         html = self.render_template("tas.html", context)
 

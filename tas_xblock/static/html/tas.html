@@ -1,21 +1,50 @@
 {% load i18n %}
 <div class="tas_block">
-    <h2 class="display-name">{{ display_name }}</h2>
-    <div class="instructions">
-        <p class="instructions-text">{{ instructions }}</p>
-    </div>
     <div class="template">
         {% if template_type and template %}
-
             {% if is_course_staff %}
-                <a href="#" id="submit_grade">{% trans "Grade Available Responses" %}</a>
+                <a href="{{ assigment_review_url }}" id="submit_grade">{% trans "Grade Available Responses" %}</a>
             {% else %}
-                <a href="#" id="submit_assignment">{% trans "Submit Assignment" %}</a>
+                {% if assigment_status == "not_submitted" %}
+                    <div class="instructions">
+                        <p class="instructions-text">{{ instructions }}</p>
+                    </div>
+                    <a href="{{ assigment_submission_url }}" id="submit_assignment">{% trans "Submit Assignment" %}</a>
+                {% elif assigment_status == "submitted" %}
+                    <div class="assigment-status-message submitted">
+                        <p><b>{% trans "Assignment Status" %}:</b> {% trans "Submitted" %}</p>
+                        <p>{% trans "This assignment has been submitted and is waiting for grading." %}</p>
+                    </div>
+                {% elif assigment_status == "draft" %}
+                    <div class="assigment-status-message draft">
+                        <p><b>{% trans "Assignment Status" %}:</b> {% trans "Draft" %}</p>
+                        <p>{% trans "This assignment is a draft and has not been submitted. Follow the instructions below to submit the assignment." %}</p>
+                    </div>
+                    <div class="instructions">
+                        <p class="instructions-text">{{ instructions }}</p>
+                    </div>
+                    <a href="{{ assigment_submission_url }}" id="submit_assignment">{% trans "Submit Assignment" %}</a>
+                {% elif assigment_status == "rejected" %}
+                    <div class="assigment-status-message rejected">
+                        <p><b>{% trans "Assignment Status" %}:</b> {% trans "Rejected" %}</p>
+                        <p>{% trans "This assignment has been rejected. Please revise and submit the assignment again." %}</p>
+                    </div>
+                    <div class="instructions">
+                        <p class="instructions-text">{{ instructions }}</p>
+                    </div>
+                    <a href="{{ assigment_submission_url }}" id="submit_assignment">{% trans "Submit Assignment" %}</a>
+                {% elif assigment_status == "approved" %}
+                    <div class="assigment-status-message approved">
+                        <p><b>{% trans "Assignment Status" %}:</b> {% trans "Approved" %}</p>
+                        <p>{% trans "This assignment has been approved. You can view the assignment below." %}</p>
+                    </div>
+                    {% if assigment_pdf_url %}
+                        <a href="{{ assigment_pdf_url }}" id="submit_assignment">{% trans "View Assignment" %}</a>
+                    {% endif %}
+                {% endif %}
             {% endif %}
-
         {% else %}
-        <p>{% trans "No template selected" %}</p>
+            <p>{% trans "No template selected" %}</p>
         {% endif %}
     </div>
 </div>
-

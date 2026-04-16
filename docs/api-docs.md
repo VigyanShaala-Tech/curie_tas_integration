@@ -623,6 +623,14 @@
 - **Request Type**: `POST`
 - **Payload**:
 
+To Reject Submission:
+```json
+{
+  "comment": "Improve structure.",
+  "status": "rejected"
+}
+```
+To Approve Submission:
 ```json
 {
   "rubrics": [
@@ -632,7 +640,7 @@
     }
   ],
   "comment": "Good effort. Improve structure.",
-  "status": "pending"
+  "status": "approved"
 }
 ```
 

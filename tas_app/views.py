@@ -11,7 +11,16 @@ from rest_framework import status
 from rest_framework import permissions
 from rest_framework.exceptions import NotFound
 
-from .models import TemplateType, Template, TemplateBlock, Submission, InstructorFeedback
+from .models import (
+    TemplateType,
+    Template,
+    TemplateBlock,
+    Submission,
+    InstructorFeedback,
+    STATUS_PENDING,
+    STATUS_APPROVED,
+    STATUS_REJECTED,
+)
 from .serializers import (
     InstructorFeedbackUpsertSerializer,
     TemplateTypeSerializer,
@@ -125,7 +134,7 @@ class TemplateTypesDetailView(APIView):
             return Response({"detail": "TemplateType is already inactive."}, status=status.HTTP_400_BAD_REQUEST)
         template_type.is_active = False
         template_type.save(update_fields=["is_active", "modified"])
-        return Response(status=status.HTTP_204_NO_CONTENT)
+        return Response(status=status.HTTP_200_OK)
 
 
 class TemplatesListView(ListCreateAPIView):
@@ -178,7 +187,7 @@ class TemplatesListView(ListCreateAPIView):
         Save the new template type instance. Additional logging or auditing
         could be added here if needed.
         """
-        serializer.save()
+        serializer.save(created_by=self.request.user)
 
 
 class TemplatesDetailView(APIView):
@@ -482,6 +491,7 @@ class InstructorFeedbackAPIView(APIView):
         serializer.is_valid(raise_exception=True)
         validated_data = serializer.validated_data
 
+        submission_status = validated_data.get("status", STATUS_PENDING)
         # Use update_or_create for atomic create or update logic
         feedback, created = InstructorFeedback.objects.update_or_create(
             submission=submission,
@@ -489,10 +499,13 @@ class InstructorFeedbackAPIView(APIView):
                 "instructor": request.user,
                 "rubrics": validated_data.get("rubrics", []),
                 "comment": validated_data.get("comment", ""),
-                "status": validated_data.get("status", InstructorFeedback.STATUS_PENDING),
+                "status": submission_status,
             },
         )
-
+        feedback.create_version_snapshot()
+        if submission_status in [STATUS_APPROVED, STATUS_REJECTED]:
+            submission.status = submission_status
+            submission.save()
         # Return explicit success response with creation status
         return Response(
             {
@@ -678,8 +691,16 @@ class StudentSubmissionDetailAPIView(APIView):
 
         # Increment version, save, and snapshot
         submission.version_number += 1
+        submission.status = Submission.STATUS_DRAFT
         submission.save()
         submission.create_version_snapshot()
+
+        try:
+            feedback = InstructorFeedback.objects.get(submission=submission)
+            feedback.status = STATUS_PENDING
+            feedback.save()
+        except InstructorFeedback.DoesNotExist:
+            pass
 
         out = StudentSubmissionResponseSerializer(submission, context={"request": request})
         return Response(out.data, status=status.HTTP_200_OK)

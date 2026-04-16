@@ -2,7 +2,7 @@ from opaque_keys import InvalidKeyError
 from opaque_keys.edx.keys import CourseKey, UsageKey
 from rest_framework import serializers
 
-from .models import InstructorFeedback, Submission, Template, TemplateType, TemplateBlock
+from .models import InstructorFeedback, Submission, Template, TemplateType, TemplateBlock, STATUS_CHOICES
 
 
 class TemplateTypeSerializer(serializers.ModelSerializer):
@@ -224,7 +224,7 @@ class InstructorFeedbackUpsertSerializer(serializers.Serializer):
 
     rubrics = serializers.JSONField(required=False)
     comment = serializers.CharField(required=False, allow_blank=True)
-    status = serializers.ChoiceField(choices=InstructorFeedback.STATUS_CHOICES, required=False)
+    status = serializers.ChoiceField(choices=STATUS_CHOICES, required=False)
 
     def validate_rubrics(self, value):
         if value is None:

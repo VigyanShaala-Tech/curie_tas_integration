@@ -37,3 +37,22 @@
 .tas_block #submit_grade:focus {
     text-decoration: none !important;
 }
+
+.tas_block .assigment-status-message{
+    margin-bottom: 20px;
+    background-color: #f1f1f1;
+    padding: 15px;
+    border-radius: 3px;
+    font-size: 15px;
+}
+.tas_block .assigment-status-message p{
+    margin-bottom: 0;
+}
+
+.tas_block .assigment-status-message.rejected{
+    background: #f4d1d1;
+}
+
+.tas_block .assigment-status-message.approved{
+    background: #d1f4d1;
+}

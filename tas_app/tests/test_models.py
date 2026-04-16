@@ -12,6 +12,7 @@ from tas_app.models import (
     Template,
     TemplateBlock,
     TemplateType,
+    STATUS_PENDING,
 )
 
 
@@ -96,7 +97,7 @@ class InstructorFeedbackFactory(factory.django.DjangoModelFactory):
     instructor = factory.SubFactory(UserFactory)
     rubrics = [{"title": "Quality", "score": 8}]
     comment = "Solid work."
-    status = InstructorFeedback.STATUS_PENDING
+    status = STATUS_PENDING
 
 
 class TemplateTypeModelTest(TestCase):

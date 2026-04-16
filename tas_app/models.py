@@ -4,6 +4,16 @@ from model_utils.models import TimeStampedModel
 from opaque_keys.edx.django.models import CourseKeyField, UsageKeyField
 
 
+STATUS_PENDING = "pending"
+STATUS_APPROVED = "approved"
+STATUS_REJECTED = "rejected"
+STATUS_CHOICES = [
+    (STATUS_PENDING, "Pending"),
+    (STATUS_APPROVED, "Approved"),
+    (STATUS_REJECTED, "Rejected"),
+]
+
+
 class TemplateType(TimeStampedModel):
     """
     Stores different categories for assignment templates within TAS.
@@ -184,9 +194,13 @@ class Submission(TimeStampedModel):
 
     STATUS_DRAFT = "draft"
     STATUS_SUBMITTED = "submitted"
+    STATUS_APPROVED = "approved"
+    STATUS_REJECTED = "rejected"
     STATUS_CHOICES = [
         (STATUS_DRAFT, "Draft"),
         (STATUS_SUBMITTED, "Submitted"),
+        (STATUS_APPROVED, "Approved"),
+        (STATUS_REJECTED, "Rejected"),
     ]
     student = models.ForeignKey(
         User,
@@ -278,6 +292,9 @@ class SubmissionVersion(TimeStampedModel):
     )
     form_data = models.JSONField(help_text="Immutable snapshot of the form data for this version.")
     saved_at = models.DateTimeField(auto_now_add=True, help_text="Timestamp when this version was created.")
+    pdf = models.FileField(
+        upload_to="tas/submissions/pdfs/", null=True, blank=True, help_text="Path to the generated PDF, if any."
+    )
 
     class Meta:
         ordering = ["-version_number"]
@@ -325,14 +342,7 @@ class InstructorFeedback(TimeStampedModel):
         blank=True,
         help_text="Free-form instructor comments about the submission.",
     )
-    STATUS_PENDING = "pending"
-    STATUS_APPROVED = "approved"
-    STATUS_REJECTED = "rejected"
-    STATUS_CHOICES = [
-        (STATUS_PENDING, "Pending"),
-        (STATUS_APPROVED, "Approved"),
-        (STATUS_REJECTED, "Rejected"),
-    ]
+
     status = models.CharField(
         max_length=20,
         choices=STATUS_CHOICES,
@@ -351,5 +361,77 @@ class InstructorFeedback(TimeStampedModel):
         Returns a human-readable summary of the feedback for admin/debug.
         """
         submission_str = str(self.submission) if self.submission else "N/A"
-        status_str = dict(self.STATUS_CHOICES).get(self.status, self.status)
+        status_str = dict(STATUS_CHOICES).get(self.status, self.status)
         return f"{submission_str} (Feedback: {status_str})"
+
+    def create_version_snapshot(self):
+        """
+        Persist an immutable snapshot for the current rubrics/comment/status.
+        Auto-increments version_number each time it is called.
+        """
+        existing_version = InstructorFeedbackVersion.objects.all().count()
+        InstructorFeedbackVersion.objects.create(
+            instructor_feedback=self,
+            version_number=existing_version + 1,
+            instructor=self.instructor,
+            rubrics=self.rubrics,
+            comment=self.comment,
+            status=self.status,
+        )
+
+
+class InstructorFeedbackVersion(TimeStampedModel):
+    """
+    Stores an immutable historical snapshot of a InstructorFeedback.
+    On each save or version increment of the associated InstructorFeedback, a new InstructorFeedbackVersion is created.
+    Enables audit trails and rollback/review of student changes.
+    """
+
+    instructor_feedback = models.ForeignKey(
+        InstructorFeedback,
+        on_delete=models.CASCADE,
+        related_name="tas_instructor_feedback_versions",
+        help_text="Parent reference to the editable instructor feedback.",
+    )
+    version_number = models.PositiveIntegerField(
+        help_text="Snapshot's version number (matches value on the InstructorFeedback at save time)."
+    )
+    instructor = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        help_text="Instructor who provided this feedback.",
+        related_name="given_instructor_feedback_versions",
+    )
+    rubrics = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="Rubric items, ratings, or scores as structured data.",
+    )
+    comment = models.TextField(
+        blank=True,
+        help_text="Free-form instructor comments about the submission.",
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default=STATUS_PENDING,
+        help_text="Current feedback status: pending, approved, or rejected.",
+        db_index=True,
+    )
+
+    class Meta:
+        ordering = ["-version_number"]
+        verbose_name = "TAS Instructor Feedback Version"
+        verbose_name_plural = "TAS Instructor Feedback Versions"
+        unique_together = [("instructor_feedback", "version_number")]
+
+    def __str__(self):
+        """
+        Returns string: 'instructor - v<version_number>'.
+        """
+        instructor = (
+            self.instructor_feedback.instructor.username
+            if self.instructor_feedback and self.instructor_feedback.instructor
+            else "N/A"
+        )
+        return f"{instructor} - v{self.version_number}"
