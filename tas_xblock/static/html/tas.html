@@ -28,6 +28,12 @@
                     <div class="assigment-status-message rejected">
                         <p><b>{% trans "Assignment Status" %}:</b> {% trans "Rejected" %}</p>
                         <p>{% trans "This assignment has been rejected. Please revise and submit the assignment again." %}</p>
+                        {% if assigment_feedback and assigment_feedback.comment %}
+                            <div class="feedback-comment">
+                                <b>{% trans "Instructor Feedback" %}:</b>
+                                <p>{{ assigment_feedback.comment }}</p>
+                            </div>
+                        {% endif %}
                     </div>
                     <div class="instructions">
                         <p class="instructions-text">{{ instructions }}</p>
@@ -37,6 +43,12 @@
                     <div class="assigment-status-message approved">
                         <p><b>{% trans "Assignment Status" %}:</b> {% trans "Approved" %}</p>
                         <p>{% trans "This assignment has been approved. You can view the assignment below." %}</p>
+                        {% if assigment_feedback and assigment_feedback.comment %}
+                            <div class="feedback-comment">
+                                <b>{% trans "Instructor Feedback" %}:</b>
+                                <p>{{ assigment_feedback.comment }}</p>
+                            </div>
+                        {% endif %}
                     </div>
                     {% if assigment_pdf_url %}
                         <a href="{{ assigment_pdf_url }}" id="submit_assignment">{% trans "View Assignment" %}</a>

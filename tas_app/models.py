@@ -263,14 +263,18 @@ class Submission(TimeStampedModel):
         """
         return self.status == self.STATUS_SUBMITTED
 
-    def create_version_snapshot(self):
+    def create_version_snapshot(self, include_pdf=False):
         """
         Persist an immutable snapshot for the current version_number/form_data.
+        Pass include_pdf=True only when called after a submit (PDF has just been generated).
         """
+        defaults = {"form_data": self.form_data}
+        if include_pdf:
+            defaults["pdf"] = self.pdf or None
         SubmissionVersion.objects.update_or_create(
             submission=self,
             version_number=self.version_number,
-            defaults={"form_data": self.form_data},
+            defaults=defaults,
         )
 
 

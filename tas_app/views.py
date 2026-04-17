@@ -207,8 +207,13 @@ class TemplatesDetailView(APIView):
         - Soft-deletes the Template (sets is_active=False).
     """
 
-    permission_classes = [permissions.IsAdminUser]
     authentication_classes = [JwtAuthentication, SessionAuthentication]
+
+    def get_permissions(self):
+        # Students can GET a template; only admins can modify/delete
+        if self.request.method == 'GET':
+            return [permissions.IsAuthenticated()]
+        return [permissions.IsAdminUser()]
 
     def get_object(self, pk):
         try:
@@ -234,7 +239,7 @@ class TemplatesDetailView(APIView):
         Retrieve the details of the specified Template.
         """
         template = self.get_object(pk)
-        serializer = TemplateSerializer(template)
+        serializer = TemplateSerializer(template, context={"request": request})
         return Response(serializer.data, status=status.HTTP_200_OK)
 
     def put(self, request, pk):
@@ -328,9 +333,11 @@ class LearnerSubmissionsAPIView(APIView):
         GET /api/v1/block/<usage_key>/submissions/
         Returns a paginated list of submissions for the specified block.
         """
-        # Use select_related to reduce DB queries when accessing related User
+        # Use select_related to reduce DB queries when accessing related User and feedback
         submissions_qs = (
-            Submission.objects.filter(usage_key=usage_key).select_related("student").order_by("-submitted_at")
+            Submission.objects.filter(usage_key=usage_key)
+            .select_related("student", "feedback")
+            .order_by("-submitted_at")
         )
 
         # Use custom paginator for paginating results
@@ -338,16 +345,20 @@ class LearnerSubmissionsAPIView(APIView):
         page = paginator.paginate_queryset(submissions_qs, request)
 
         # Build the summary response for each submission in the page
-        results = [
-            {
+        results = []
+        for sub in page:
+            try:
+                feedback_status = sub.feedback.status
+            except Exception:
+                feedback_status = None
+            results.append({
                 "id": sub.id,
                 "username": sub.student.username,
                 "submission_date": sub.submitted_at,
-                "grade": "N/A",  # Placeholder; update if grading is implemented
-                "grading_status": sub.status,
-            }
-            for sub in page
-        ]
+                "status": sub.status,
+                "version_number": sub.version_number,
+                "feedback_status": feedback_status,
+            })
 
         # Return a paginated response
         return paginator.get_paginated_response(results)
@@ -384,12 +395,45 @@ class LearnerSubmissionDetailAPIView(APIView):
         """
         # Use select_related to optimize query for student (User) object
         try:
-            submission = Submission.objects.select_related("student").get(id=pk)
+            submission = (
+                Submission.objects
+                .select_related("student", "feedback")
+                .get(id=pk)
+            )
         except Submission.DoesNotExist:
             return Response({"detail": "Submission not found"}, status=status.HTTP_404_NOT_FOUND)
 
         # Build absolute PDF URL if a file exists, else None
-        pdf_url = submission.pdf.url if submission.pdf else None
+        pdf_url = request.build_absolute_uri(submission.pdf.url) if submission.pdf else None
+
+        # Include feedback + version history if present (OneToOne: submission.feedback)
+        feedback_data = None
+        try:
+            fb = submission.feedback
+            versions = list(
+                fb.tas_instructor_feedback_versions
+                .order_by("-version_number")
+                .values("version_number", "status", "comment", "rubrics", "created")
+            )
+            feedback_data = {
+                "status": fb.status,
+                "comment": fb.comment,
+                "rubrics": fb.rubrics,
+                "versions": versions,
+            }
+        except Exception:
+            pass
+
+        # Include submission version history — only submitted versions (have a PDF)
+        version_history = []
+        for v in submission.tas_submission_versions.exclude(pdf="").exclude(pdf=None).order_by("-version_number"):
+            v_pdf_url = request.build_absolute_uri(v.pdf.url) if v.pdf else None
+            version_history.append({
+                "version_number": v.version_number,
+                "saved_at": v.saved_at,
+                "form_data": v.form_data,
+                "pdf_url": v_pdf_url,
+            })
 
         # Prepare response payload
         data = {
@@ -402,6 +446,8 @@ class LearnerSubmissionDetailAPIView(APIView):
             "version": submission.version_number,
             "form_data": submission.form_data,
             "pdf": pdf_url,
+            "feedback": feedback_data,
+            "version_history": version_history,
         }
 
         return Response(data, status=status.HTTP_200_OK)
@@ -557,11 +603,6 @@ class StudentSubmissionCreateAPIView(APIView):
             new_status=new_status,
             pdf_file=pdf_file,
         )
-        if submission is None:
-            return Response(
-                {"detail": "This submission is already finalized and cannot be changed."},
-                status=status.HTTP_409_CONFLICT,
-            )
 
         out = StudentSubmissionResponseSerializer(submission, context={"request": request})
         return Response(
@@ -585,11 +626,18 @@ class StudentSubmissionCreateAPIView(APIView):
                 created = submission is None
 
                 if submission and submission.status == Submission.STATUS_SUBMITTED:
-                    return None, False
+                    return submission, False
 
                 if submission:
+                    # If submission is rejected/approved, just return it as-is (student is viewing)
+                    if submission.status not in (Submission.STATUS_DRAFT,):
+                        return submission, False
+
                     submission.template_block = template_block
-                    submission.form_data = form_data
+                    # Only overwrite form_data if the caller sent real data.
+                    # An empty dict means "get existing draft" — preserve saved answers.
+                    if form_data:
+                        submission.form_data = form_data
                     submission.status = new_status
                     submission.version_number += 1
                     if pdf_file:
@@ -621,9 +669,12 @@ class StudentSubmissionCreateAPIView(APIView):
                     usage_key=usage_key,
                 )
                 if submission.status == Submission.STATUS_SUBMITTED:
-                    return None, False
+                    return submission, False
+                if submission.status not in (Submission.STATUS_DRAFT,):
+                    return submission, False
                 submission.template_block = template_block
-                submission.form_data = form_data
+                if form_data:
+                    submission.form_data = form_data
                 submission.status = new_status
                 submission.version_number += 1
                 if pdf_file:
@@ -737,7 +788,16 @@ class StudentSubmissionSubmitAPIView(APIView):
         submission.version_number += 1
         submission.submitted_at = timezone.now()
         submission.save()
-        submission.create_version_snapshot()
+
+        # Generate PDF before snapshot so pdf is captured in version history
+        try:
+            from .pdf_generator import generate_submission_pdf
+            generate_submission_pdf(submission)
+        except Exception as exc:  # noqa: BLE001
+            import logging
+            logging.getLogger(__name__).warning("PDF generation failed for submission %s: %s", submission.pk, exc)
+
+        submission.create_version_snapshot(include_pdf=True)
 
         serializer = StudentSubmissionSubmitSerializer(submission, context={"request": request})
         return Response(serializer.data, status=status.HTTP_200_OK)

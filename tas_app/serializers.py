@@ -90,6 +90,7 @@ class StudentSubmissionResponseSerializer(serializers.ModelSerializer):
     student_id = serializers.SerializerMethodField()
     course_id = serializers.SerializerMethodField()
     pdf_url = serializers.SerializerMethodField()
+    feedback = serializers.SerializerMethodField()
     created_at = serializers.DateTimeField(source="created", read_only=True)
     updated_at = serializers.DateTimeField(source="modified", read_only=True)
 
@@ -106,6 +107,7 @@ class StudentSubmissionResponseSerializer(serializers.ModelSerializer):
             "version_number",
             "submitted_at",
             "pdf_url",
+            "feedback",
             "created_at",
             "updated_at",
         ]
@@ -126,6 +128,13 @@ class StudentSubmissionResponseSerializer(serializers.ModelSerializer):
         request = self.context.get("request")
         pdf_url = obj.pdf.url
         return request.build_absolute_uri(pdf_url) if request else pdf_url
+
+    def get_feedback(self, obj):
+        try:
+            fb = obj.feedback
+            return {"status": fb.status, "comment": fb.comment, "rubrics": fb.rubrics}
+        except Exception:
+            return None
 
 
 class StudentSubmissionPatchSerializer(serializers.Serializer):

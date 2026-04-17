@@ -12,7 +12,7 @@ from xblockutils.resources import ResourceLoader
 
 from django.contrib.auth.models import User
 from lms.djangoapps.courseware.access import has_access
-from tas_app.models import TemplateBlock, Template, TemplateType, Submission
+from tas_app.models import TemplateBlock, Template, TemplateType, Submission, InstructorFeedback
 
 
 def _(text):
@@ -90,15 +90,23 @@ class TASXBlock(XBlock):
 
     def get_assigment_status(self):
         """
-        Get student assignment submission status.
+        Get student assignment submission status and feedback.
         """
         assigment_pdf_url = None
+        feedback = None
         try:
-            submission = Submission.objects.get(usage_key=self.location, student=self.runtime.get_real_user())
+            submission = Submission.objects.select_related("feedback").get(
+                usage_key=self.location, student=self.runtime.get_real_user()
+            )
             assigment_pdf_url = submission.pdf.url if submission.pdf else None
-        except Exception as e:
-            return "not_submitted", None
-        return submission.status, assigment_pdf_url
+            try:
+                fb = submission.feedback
+                feedback = {"status": fb.status, "comment": fb.comment}
+            except Exception:
+                pass
+        except Exception:
+            return "not_submitted", None, None
+        return submission.status, assigment_pdf_url, feedback
 
     def student_view(self, context=None):
         """
@@ -110,7 +118,7 @@ class TASXBlock(XBlock):
         TAS_MICROFRONTEND_URL = getattr(settings, "TAS_MICROFRONTEND_URL", "http://apps.local.openedx.io:2022")
         assigment_submission_url = f"{TAS_MICROFRONTEND_URL}/submission/{self.location}"
         assigment_review_url = f"{TAS_MICROFRONTEND_URL}/instructor/grade-submissions/{self.location}"
-        assigment_status, assigment_pdf_url = self.get_assigment_status()
+        assigment_status, assigment_pdf_url, assigment_feedback = self.get_assigment_status()
         context = {
             "display_name": self.display_name,
             "template_type": self.template_type,
@@ -121,6 +129,7 @@ class TASXBlock(XBlock):
             "assigment_review_url": assigment_review_url,
             "assigment_status": assigment_status,
             "assigment_pdf_url": assigment_pdf_url,
+            "assigment_feedback": assigment_feedback,
         }
         html = self.render_template("tas.html", context)
 
