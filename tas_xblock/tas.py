@@ -6,7 +6,7 @@ import pkg_resources
 from django.template import Context
 from django.conf import settings
 from xblock.core import XBlock
-from xblock.fields import Scope, String, List
+from xblock.fields import Float, Scope, String, List
 from xblock.fragment import Fragment
 from xblockutils.resources import ResourceLoader
 
@@ -33,7 +33,8 @@ class TASXBlock(XBlock):
 
     loader = ResourceLoader(__name__)
 
-    icon_class = "other"
+    has_score = True
+    icon_class = "problem"
 
     display_name = String(
         display_name=_("Display Name"),
@@ -115,6 +116,13 @@ class TASXBlock(XBlock):
         help=_("List of rubrics for evaluation"),
     )
 
+    weight = Float(
+        display_name=_("Problem Weight"),
+        scope=Scope.settings,
+        default=1.0,
+        help=_("Defines the weight of this assignment when calculating the course grade."),
+    )
+
     def load_resource(self, resource_path):  # pylint: disable=no-self-use
         """
         Gets the content of a resource
@@ -136,7 +144,7 @@ class TASXBlock(XBlock):
 
     def get_assigment_status(self):
         """
-        Get student assignment submission status and feedback.
+        Get student assignment submission status and feedback (including rubric marks).
         """
         assigment_pdf_url = None
         feedback = None
@@ -147,12 +155,32 @@ class TASXBlock(XBlock):
             assigment_pdf_url = submission.pdf.url if submission.pdf else None
             try:
                 fb = submission.feedback
-                feedback = {"status": fb.status, "comment": fb.comment}
+                feedback = {
+                    "status": fb.status,
+                    "comment": fb.comment,
+                    "rubrics": fb.rubrics or [],
+                }
             except Exception:
                 pass
         except Exception:
             return "not_submitted", None, None
         return submission.status, assigment_pdf_url, feedback
+
+    def max_score(self):
+        """
+        Return the maximum achievable score across all rubric criteria.
+
+        For each criterion the maximum is the highest marks value among its
+        options.  The overall maximum is the sum of per-criterion maximums.
+        Returns None when no rubrics are configured so the runtime treats this
+        block as ungraded until rubrics are set.
+        """
+        total = 0
+        for criterion in self.rubrics:
+            options = criterion.get("options", [])
+            if options:
+                total += max((opt.get("marks", 0) for opt in options), default=0)
+        return total if total > 0 else None
 
     def student_view(self, context=None):
         """
@@ -165,6 +193,29 @@ class TASXBlock(XBlock):
         assigment_submission_url = f"{TAS_MICROFRONTEND_URL}/submission/{self.location}"
         assigment_review_url = f"{TAS_MICROFRONTEND_URL}/instructor/grade-submissions/{self.location}"
         assigment_status, assigment_pdf_url, assigment_feedback = self.get_assigment_status()
+
+        # Publish grade to the LMS gradebook when a student's submission has been
+        # approved by an instructor.  This uses the "lazy publish" pattern: the
+        # grade is (re-)published each time the student loads the page so it
+        # always reflects the latest approved feedback without requiring the
+        # instructor-facing REST API to have direct access to the XBlock runtime.
+        assigment_earned_score = None
+        assigment_max_score = None
+        if not is_course_staff and assigment_status == "approved" and assigment_feedback:
+            max_possible = self.max_score() or 0
+            if max_possible > 0:
+                earned = sum(r.get("marks", 0) for r in (assigment_feedback.get("rubrics") or []))
+                self.runtime.publish(
+                    self,
+                    "grade",
+                    {
+                        "value": earned,
+                        "max_value": max_possible,
+                    },
+                )
+                assigment_earned_score = earned
+                assigment_max_score = max_possible
+
         context = {
             "display_name": self.display_name,
             "template_type": self.template_type,
@@ -176,6 +227,8 @@ class TASXBlock(XBlock):
             "assigment_status": assigment_status,
             "assigment_pdf_url": assigment_pdf_url,
             "assigment_feedback": assigment_feedback,
+            "assigment_earned_score": assigment_earned_score,
+            "assigment_max_score": assigment_max_score,
         }
         html = self.render_template("tas.html", context)
 

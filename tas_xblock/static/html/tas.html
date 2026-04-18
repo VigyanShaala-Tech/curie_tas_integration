@@ -43,6 +43,12 @@
                     <div class="assigment-status-message approved">
                         <p><b>{% trans "Assignment Status" %}:</b> {% trans "Approved" %}</p>
                         <p>{% trans "This assignment has been approved. You can view the assignment below." %}</p>
+                        {% if assigment_earned_score is not None and assigment_max_score %}
+                            <div class="assigment-score">
+                                <span class="assigment-score-label">{% trans "Your Score" %}:</span>
+                                <span class="assigment-score-value">{{ assigment_earned_score }} / {{ assigment_max_score }}</span>
+                            </div>
+                        {% endif %}
                         {% if assigment_feedback and assigment_feedback.comment %}
                             <div class="feedback-comment">
                                 <b>{% trans "Instructor Feedback" %}:</b>
