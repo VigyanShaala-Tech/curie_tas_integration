@@ -218,7 +218,7 @@ class TemplatesDetailView(APIView):
 
     def get_permissions(self):
         # Students can GET a template; only admins can modify/delete
-        if self.request.method == 'GET':
+        if self.request.method == "GET":
             return [permissions.IsAuthenticated()]
         return [permissions.IsAdminUser()]
 
@@ -358,14 +358,16 @@ class LearnerSubmissionsAPIView(APIView):
                 feedback_status = sub.feedback.status
             except ObjectDoesNotExist:
                 feedback_status = None
-            results.append({
-                "id": sub.id,
-                "username": sub.student.username,
-                "submission_date": sub.submitted_at,
-                "status": sub.status,
-                "version_number": sub.version_number,
-                "feedback_status": feedback_status,
-            })
+            results.append(
+                {
+                    "id": sub.id,
+                    "username": sub.student.username,
+                    "submission_date": sub.submitted_at,
+                    "status": sub.status,
+                    "version_number": sub.version_number,
+                    "feedback_status": feedback_status,
+                }
+            )
 
         # Return a paginated response
         return paginator.get_paginated_response(results)
@@ -402,11 +404,7 @@ class LearnerSubmissionDetailAPIView(APIView):
         """
         # Use select_related to optimize query for student (User) object
         try:
-            submission = (
-                Submission.objects
-                .select_related("student", "feedback")
-                .get(id=pk)
-            )
+            submission = Submission.objects.select_related("student", "feedback").get(id=pk)
         except Submission.DoesNotExist:
             return Response({"detail": "Submission not found"}, status=status.HTTP_404_NOT_FOUND)
 
@@ -418,9 +416,9 @@ class LearnerSubmissionDetailAPIView(APIView):
         try:
             fb = submission.feedback
             versions = list(
-                fb.tas_instructor_feedback_versions
-                .order_by("-version_number")
-                .values("version_number", "status", "comment", "rubrics", "created")
+                fb.tas_instructor_feedback_versions.order_by("-version_number").values(
+                    "version_number", "status", "comment", "rubrics", "created"
+                )
             )
             feedback_data = {
                 "status": fb.status,
@@ -433,16 +431,21 @@ class LearnerSubmissionDetailAPIView(APIView):
 
         # Include submission version history — only submitted versions (have a PDF)
         version_history = []
-        for v in submission.tas_submission_versions.exclude(pdf="").exclude(pdf=None).order_by("-version_number").only(
-            "version_number", "saved_at", "form_data", "pdf"
+        for v in (
+            submission.tas_submission_versions.exclude(pdf="")
+            .exclude(pdf=None)
+            .order_by("-version_number")
+            .only("version_number", "saved_at", "form_data", "pdf")
         ):
             v_pdf_url = request.build_absolute_uri(v.pdf.url) if v.pdf else None
-            version_history.append({
-                "version_number": v.version_number,
-                "saved_at": v.saved_at,
-                "form_data": v.form_data,
-                "pdf_url": v_pdf_url,
-            })
+            version_history.append(
+                {
+                    "version_number": v.version_number,
+                    "saved_at": v.saved_at,
+                    "form_data": v.form_data,
+                    "pdf_url": v_pdf_url,
+                }
+            )
 
         # Prepare response payload
         data = {

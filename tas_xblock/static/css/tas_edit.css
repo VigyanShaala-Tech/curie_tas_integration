@@ -1,78 +1,642 @@
-.tas-edit-block #tas_edit_instructions{width: 48%;}
+/* ==========================================================
+   TAS XBlock — Studio Edit View
+   ========================================================== */
 
-/* ===== Tabs ===== */
+/* ---------- Design tokens ---------- */
+.tas-editor {
+    --te-primary:        #69AB4A;
+    --te-primary-light:  #eef7e8;
+    --te-primary-dark:   #5a9a3c;
+    --te-danger:         #c0392b;
+    --te-danger-light:   #fdf0ee;
+    --te-text:           #1a2332;
+    --te-text-muted:     #6b7280;
+    --te-border:         #e2e8f0;
+    --te-bg:             #f7f9fc;
+    --te-card-bg:        #ffffff;
+    --te-radius:         10px;
+    --te-radius-sm:      6px;
+    --te-shadow:         0 1px 4px rgba(0,0,0,.08), 0 4px 16px rgba(0,0,0,.06);
+    --te-shadow-sm:      0 1px 3px rgba(0,0,0,.07);
+    --te-transition:     0.18s ease;
 
-.tas-tabs {
-    border-bottom: 1px solid #dcdcdc;
-    margin-bottom: 15px;
-}
-
-.tab-btn {
-    background: none;
-    border: none;
-    padding: 8px 12px;
-    cursor: pointer;
-    color: #555;
-    font-weight: 500;
-}
-
-.tab-btn.active {
-    border-bottom: 2px solid #0075b4;
-    color: #0075b4;
-}
-
-/* ===== Tab Content ===== */
-
-.tab-content {
-    display: none;
-}
-
-.tab-content.active {
-    display: block;
-}
-
-/* ===== Rubrics Table ===== */
-
-.rubric-table {
-    width: 100%;
-    border-collapse: collapse;
-    margin-top: 10px;
-}
-
-.rubric-table th,
-.rubric-table td {
-    border: 1px solid #ddd;
-    padding: 8px;
-}
-
-.rubric-table input {
-    width: 100%;
-    padding: 6px;
+    font-size: 14px;
+    color: var(--te-text);
+    background: var(--te-bg);
+    padding: 0 0 8px;
     box-sizing: border-box;
 }
 
-/* Buttons */
-.add-rubric {
-    margin-top: 10px;
-    color: #fff !important;
-    background-color: #69AB4A;
-    border-color: #69AB4A;
-    box-shadow: none;
-    font-weight: 500;
-    padding: 10px 16px;
-    font-size: 18px;
-    border-radius: 6px;
+.tas-editor *, .tas-editor *::before, .tas-editor *::after {
+    box-sizing: border-box;
+}
+
+/* ---------- Tab nav ---------- */
+.te-tabs {
+    display: flex;
+    gap: 2px;
+    background: #fff;
+    border-bottom: 2px solid var(--te-border);
+    padding: 0 16px;
+    margin-bottom: 0;
+}
+
+.te-tab {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 13px 18px 11px;
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -2px;
+    font-size: 13.5px;
+    font-weight: 600;
+    color: var(--te-text-muted);
+    cursor: pointer;
+    transition: color var(--te-transition), border-color var(--te-transition);
+    white-space: nowrap;
+}
+
+.te-tab:hover {
+    color: var(--te-primary);
+}
+
+.te-tab.active {
+    color: var(--te-primary);
+    border-bottom-color: var(--te-primary);
+}
+
+.te-tab-icon {
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+}
+
+.te-rubric-count {
+    background: var(--te-primary);
+    color: #fff;
+    font-size: 11px;
+    font-weight: 700;
+    border-radius: 999px;
+    padding: 1px 6px;
+    min-width: 18px;
     text-align: center;
 }
 
-.rubric-table .del {
-    background: #d9534f;
-    color: #fff;
-    border: none;
-    padding: 4px 8px;
-    cursor: pointer;
+/* ---------- Tab panels ---------- */
+.te-tab-panel {
+    display: none;
+    padding: 20px 16px 8px;
+    animation: teFadeIn .15s ease;
 }
 
-.tas-edit-block #tas_edit_instructions {
-    width: 48%;
+.te-tab-panel.active {
+    display: block;
+}
+
+@keyframes teFadeIn {
+    from { opacity: 0; transform: translateY(4px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ---------- Validation banner ---------- */
+.te-validation-banner {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 10px 16px 0;
+    padding: 10px 14px;
+    background: #fdf0ee;
+    border: 1px solid #e8b4ae;
+    border-radius: var(--te-radius-sm);
+    color: var(--te-danger);
+    font-size: 13px;
+    font-weight: 500;
+}
+
+.te-validation-banner svg {
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+}
+
+/* ---------- Field cards (Settings) ---------- */
+.te-field-card {
+    background: var(--te-card-bg);
+    border: 1px solid var(--te-border);
+    border-radius: var(--te-radius);
+    padding: 18px 20px 14px;
+    margin-bottom: 14px;
+    box-shadow: var(--te-shadow-sm);
+}
+
+.te-row {
+    display: flex;
+    gap: 14px;
+    margin-bottom: 14px;
+}
+
+.te-col {
+    flex: 1;
+    margin-bottom: 0;
+}
+
+.te-label {
+    display: block;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--te-text);
+    margin-bottom: 7px;
+    letter-spacing: .01em;
+}
+
+.te-required {
+    color: var(--te-danger);
+    margin-left: 2px;
+}
+
+.te-input {
+    width: 100%;
+    padding: 9px 12px;
+    font-size: 14px;
+    color: var(--te-text);
+    background: #fff;
+    border: 1.5px solid var(--te-border);
+    border-radius: var(--te-radius-sm);
+    transition: border-color var(--te-transition), box-shadow var(--te-transition);
+    outline: none;
+    line-height: 1.5;
+}
+
+.te-input:focus {
+    border-color: var(--te-primary);
+    box-shadow: 0 0 0 3px rgba(105,171,74,.15);
+}
+
+.te-input::placeholder {
+    color: #b0bac7;
+}
+
+.te-textarea {
+    resize: vertical;
+    min-height: 100px;
+}
+
+/* ---------- Validation error on inputs ---------- */
+.te-input-error {
+    border-color: var(--te-danger) !important;
+    box-shadow: 0 0 0 3px rgba(192,57,43,.12) !important;
+}
+
+.te-field-error {
+    display: block;
+    margin-top: 5px;
+    font-size: 12px;
+    color: var(--te-danger);
+    font-weight: 500;
+}
+
+/* ---------- Custom select ---------- */
+.te-select-wrap {
+    position: relative;
+}
+
+.te-select {
+    width: 100%;
+    padding: 9px 36px 9px 12px;
+    font-size: 14px;
+    color: var(--te-text);
+    background: #fff;
+    border: 1.5px solid var(--te-border);
+    border-radius: var(--te-radius-sm);
+    appearance: none;
+    -webkit-appearance: none;
+    cursor: pointer;
+    outline: none;
+    transition: border-color var(--te-transition), box-shadow var(--te-transition);
+}
+
+.te-select:focus {
+    border-color: var(--te-primary);
+    box-shadow: 0 0 0 3px rgba(105,171,74,.15);
+}
+
+.te-select-arrow {
+    position: absolute;
+    right: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 16px;
+    height: 16px;
+    color: var(--te-text-muted);
+    pointer-events: none;
+}
+
+.te-hint {
+    margin: 7px 0 0;
+    font-size: 12px;
+    color: var(--te-text-muted);
+    line-height: 1.5;
+}
+
+/* ---------- Rubrics header ---------- */
+.te-rubrics-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 18px;
+}
+
+.te-rubrics-title {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--te-text);
+    margin: 0 0 4px;
+}
+
+.te-rubrics-subtitle {
+    font-size: 12.5px;
+    color: var(--te-text-muted);
+    margin: 0;
+    max-width: 480px;
+    line-height: 1.5;
+}
+
+/* ---------- Criterion cards ---------- */
+.criteria-list {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    margin-bottom: 6px;
+}
+
+.criterion-block {
+    background: var(--te-card-bg);
+    border: 1.5px solid var(--te-border);
+    border-left: 4px solid var(--te-primary);
+    border-radius: var(--te-radius);
+    box-shadow: var(--te-shadow-sm);
+    overflow: hidden;
+    transition: box-shadow var(--te-transition);
+}
+
+.criterion-block:hover {
+    box-shadow: var(--te-shadow);
+}
+
+/* Alternate accent colours for variety */
+.criterion-block:nth-child(2) { border-left-color: #7c3aed; }
+.criterion-block:nth-child(3) { border-left-color: #d97706; }
+.criterion-block:nth-child(4) { border-left-color: #0891b2; }
+.criterion-block:nth-child(5) { border-left-color: #db2777; }
+.criterion-block:nth-child(6) { border-left-color: #059669; }
+
+/* Error state on criterion block */
+.criterion-block.te-has-error {
+    border-color: var(--te-danger);
+    border-left-color: var(--te-danger);
+    box-shadow: 0 0 0 2px rgba(192,57,43,.12);
+}
+
+.criterion-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 13px 14px;
+    background: #fff;
+    cursor: pointer;
+    user-select: none;
+}
+
+.criterion-header:hover {
+    background: #fafbfc;
+}
+
+.criterion-num {
+    flex-shrink: 0;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    background: var(--te-primary-light);
+    color: var(--te-primary);
+    font-size: 12px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.criterion-name {
+    flex: 1;
+    padding: 7px 11px;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--te-text);
+    border: 1.5px solid transparent;
+    border-radius: var(--te-radius-sm);
+    background: transparent;
+    outline: none;
+    transition: border-color var(--te-transition), background var(--te-transition);
+}
+
+.criterion-name:hover {
+    background: var(--te-bg);
+    border-color: var(--te-border);
+}
+
+.criterion-name:focus {
+    background: #fff;
+    border-color: var(--te-primary);
+    box-shadow: 0 0 0 3px rgba(105,171,74,.15);
+}
+
+.criterion-name::placeholder {
+    color: #b0bac7;
+    font-weight: 400;
+}
+
+.criterion-toggle {
+    flex-shrink: 0;
+    background: none;
+    border: none;
+    padding: 4px;
+    cursor: pointer;
+    color: var(--te-text-muted);
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    transition: color var(--te-transition);
+}
+
+.criterion-toggle svg {
+    width: 18px;
+    height: 18px;
+    transition: transform var(--te-transition);
+}
+
+.criterion-block.collapsed .criterion-toggle svg {
+    transform: rotate(-90deg);
+}
+
+.del-criterion {
+    flex-shrink: 0;
+    background: none;
+    border: 1px solid var(--te-border);
+    color: var(--te-text-muted);
+    border-radius: var(--te-radius-sm);
+    padding: 5px 8px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 12px;
+    transition: background var(--te-transition), color var(--te-transition), border-color var(--te-transition);
+}
+
+.del-criterion:hover {
+    background: var(--te-danger-light);
+    border-color: var(--te-danger);
+    color: var(--te-danger);
+}
+
+.del-criterion svg {
+    width: 13px;
+    height: 13px;
+}
+
+/* ---------- Options body ---------- */
+.criterion-body {
+    padding: 0 14px 14px;
+    border-top: 1px solid var(--te-border);
+}
+
+.criterion-block.collapsed .criterion-body {
+    display: none;
+}
+
+.options-header-row {
+    display: grid;
+    grid-template-columns: 1fr 2fr 80px 36px;
+    gap: 8px;
+    padding: 10px 12px 6px;
+    font-size: 11.5px;
+    font-weight: 600;
+    color: var(--te-text-muted);
+    text-transform: uppercase;
+    letter-spacing: .05em;
+}
+
+.option-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 10px;
+}
+
+.option-row {
+    display: grid;
+    grid-template-columns: 1fr 2fr 80px 36px;
+    gap: 8px;
+    align-items: center;
+    background: var(--te-bg);
+    border: 1.5px solid var(--te-border);
+    border-radius: var(--te-radius-sm);
+    padding: 8px 10px;
+    transition: border-color var(--te-transition), box-shadow var(--te-transition);
+}
+
+.option-row:hover {
+    border-color: #c6dbb8;
+    box-shadow: 0 1px 4px rgba(0,0,0,.06);
+}
+
+.option-row:focus-within {
+    border-color: var(--te-primary);
+    background: #fff;
+    box-shadow: 0 0 0 2px rgba(105,171,74,.10);
+}
+
+.option-row.te-has-error {
+    border-color: var(--te-danger);
+    box-shadow: 0 0 0 2px rgba(192,57,43,.10);
+}
+
+.opt-input {
+    width: 100%;
+    padding: 6px 9px;
+    font-size: 13.5px;
+    color: var(--te-text);
+    border: 1.5px solid var(--te-border);
+    border-radius: 5px;
+    background: #fff;
+    outline: none;
+    transition: border-color var(--te-transition);
+}
+
+.opt-input:focus {
+    border-color: var(--te-primary);
+}
+
+.opt-input::placeholder {
+    color: #b8c4cf;
+}
+
+.opt-marks {
+    width: 100%;
+    padding: 6px 9px;
+    font-size: 13.5px;
+    font-weight: 600;
+    color: var(--te-primary-dark);
+    border: 1.5px solid var(--te-border);
+    border-radius: 5px;
+    background: var(--te-primary-light);
+    text-align: center;
+    outline: none;
+    transition: border-color var(--te-transition), background var(--te-transition);
+}
+
+.opt-marks:focus {
+    border-color: var(--te-primary);
+    background: #fff;
+    color: var(--te-text);
+}
+
+.opt-marks::placeholder {
+    color: #a8c89a;
+    font-weight: 400;
+}
+
+/* ---------- Delete option button (trash icon) ---------- */
+.del-option {
+    width: 30px;
+    height: 30px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: none;
+    border: 1px solid transparent;
+    border-radius: 5px;
+    color: #b0bac7;
+    cursor: pointer;
+    transition: background var(--te-transition), color var(--te-transition), border-color var(--te-transition);
+    padding: 0;
+}
+
+.del-option svg {
+    width: 15px;
+    height: 15px;
+    pointer-events: none;
+}
+
+.del-option:hover {
+    background: var(--te-danger-light);
+    border-color: var(--te-danger);
+    color: var(--te-danger);
+}
+
+/* ---------- Add option button ---------- */
+.add-option {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    background: none;
+    border: 1.5px dashed #b8c8b0;
+    color: var(--te-text-muted);
+    border-radius: var(--te-radius-sm);
+    padding: 6px 14px;
+    font-size: 12.5px;
+    cursor: pointer;
+    transition: background var(--te-transition), color var(--te-transition), border-color var(--te-transition);
+}
+
+.add-option:hover {
+    background: var(--te-primary-light);
+    border-color: var(--te-primary);
+    color: var(--te-primary);
+}
+
+.add-option svg {
+    width: 13px;
+    height: 13px;
+}
+
+/* ---------- Empty state ---------- */
+.te-empty-state {
+    text-align: center;
+    padding: 40px 20px;
+    display: none;
+}
+
+.te-empty-state.visible {
+    display: block;
+}
+
+.te-empty-icon svg {
+    width: 64px;
+    height: 64px;
+    margin-bottom: 14px;
+}
+
+.te-empty-title {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--te-text);
+    margin: 0 0 6px;
+}
+
+.te-empty-sub {
+    font-size: 13px;
+    color: var(--te-text-muted);
+    margin: 0 0 16px;
+}
+
+/* ---------- Shared buttons (inside the XBlock panels only) ---------- */
+.te-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 16px;
+    font-size: 13.5px;
+    font-weight: 600;
+    border-radius: var(--te-radius-sm);
+    border: 1.5px solid transparent;
+    cursor: pointer;
+    text-decoration: none;
+    transition: background var(--te-transition), color var(--te-transition),
+                border-color var(--te-transition), box-shadow var(--te-transition);
+    white-space: nowrap;
+    line-height: 1;
+}
+
+.te-btn svg {
+    width: 15px;
+    height: 15px;
+    flex-shrink: 0;
+}
+
+.te-btn-primary {
+    background: var(--te-primary);
+    color: #fff;
+    border-color: var(--te-primary);
+}
+
+.te-btn-primary:hover {
+    background: var(--te-primary-dark);
+    border-color: var(--te-primary-dark);
+    box-shadow: 0 2px 8px rgba(105,171,74,.30);
+    color: #fff;
+    text-decoration: none;
+}
+
+/* Add Criterion flex-shrink fix */
+.add-criterion {
+    flex-shrink: 0;
+}
+.modal-actions {
+    display: none !important;
+}
+.modal-lg.modal-editor .modal-content{
+    height: 600px !important;
 }
