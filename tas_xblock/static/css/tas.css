@@ -57,6 +57,25 @@
     background: #d1f4d1;
 }
 
+.tas_block .assigment-score {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 10px;
+    padding: 6px 14px;
+    background: rgba(0, 0, 0, 0.08);
+    border-radius: 20px;
+    font-size: 15px;
+}
+.tas_block .assigment-score-label {
+    font-weight: 600;
+}
+.tas_block .assigment-score-value {
+    font-size: 18px;
+    font-weight: 700;
+    color: #2d6a1f;
+}
+
 .tas_block .feedback-comment {
     margin-top: 10px;
     padding: 10px 12px;
