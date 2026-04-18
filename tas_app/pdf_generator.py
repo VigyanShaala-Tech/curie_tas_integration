@@ -43,16 +43,15 @@ def generate_submission_pdf(submission):
         image_path = template.image.path
         try:
             img_reader = ImageReader(image_path)
-            c.drawImage(img_reader, 0, 0, width=page_w, height=page_h,
-                        preserveAspectRatio=True, anchor='c')
+            c.drawImage(img_reader, 0, 0, width=page_w, height=page_h, preserveAspectRatio=True, anchor="c")
         except Exception:
             logger.warning("PDF background image missing or unreadable for submission %s", submission.id)
 
     # ── Field values ──────────────────────────────────────────────────────────
     # reportlab origin is bottom-left; frontend uses top-left percentages.
     for field in fields:
-        field_id = field.get('id')
-        value = form_data.get(field_id, '')
+        field_id = field.get("id")
+        value = form_data.get(field_id, "")
         if not value or not field_id:
             continue
 
@@ -61,16 +60,16 @@ def generate_submission_pdf(submission):
             continue
 
         # Convert % → points (flip Y axis: reportlab Y=0 is bottom)
-        x = (pos['x'] / 100.0) * page_w
-        y_top = (pos['y'] / 100.0) * page_h
-        w = (pos['width'] / 100.0) * page_w
-        h = (pos['height'] / 100.0) * page_h
+        x = (pos["x"] / 100.0) * page_w
+        y_top = (pos["y"] / 100.0) * page_h
+        w = (pos["width"] / 100.0) * page_w
+        h = (pos["height"] / 100.0) * page_h
 
         # reportlab y is from bottom
         y_bottom = page_h - y_top - h
 
         font_size = min(max(7, h * 0.55), 24)
-        c.setFont('Helvetica', font_size)
+        c.setFont("Helvetica", font_size)
         c.setFillColorRGB(0.067, 0.094, 0.153)  # #111827
 
         # Draw text with word wrap inside the field box
@@ -92,9 +91,9 @@ def _draw_text_in_box(c, text, x, y, width, height, font_size):
     from reportlab.lib.utils import simpleSplit
 
     lines = []
-    for paragraph in text.split('\n'):
-        wrapped = simpleSplit(paragraph, 'Helvetica', font_size, width)
-        lines.extend(wrapped if wrapped else [''])
+    for paragraph in text.split("\n"):
+        wrapped = simpleSplit(paragraph, "Helvetica", font_size, width)
+        lines.extend(wrapped if wrapped else [""])
 
     line_height = font_size * 1.3
     # Start from top of box, draw downward
