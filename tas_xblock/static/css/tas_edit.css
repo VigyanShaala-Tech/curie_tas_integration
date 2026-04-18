@@ -31,46 +31,139 @@
     display: block;
 }
 
-/* ===== Rubrics Table ===== */
+/* ===== Rubrics ===== */
 
-.rubric-table {
-    width: 100%;
-    border-collapse: collapse;
-    margin-top: 10px;
+.rubrics-help {
+    font-size: 13px;
+    color: #666;
+    margin-bottom: 12px;
 }
 
-.rubric-table th,
-.rubric-table td {
-    border: 1px solid #ddd;
-    padding: 8px;
+.criteria-list {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    margin-bottom: 14px;
 }
 
-.rubric-table input {
-    width: 100%;
-    padding: 6px;
+.criterion-block {
+    border: 1px solid #d0d0d0;
+    border-radius: 6px;
+    padding: 14px 16px;
+    background: #fafafa;
+}
+
+.criterion-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 12px;
+}
+
+.criterion-name {
+    flex: 1;
+    padding: 6px 10px;
+    font-size: 14px;
+    font-weight: 600;
+    border: 1px solid #ccc;
+    border-radius: 4px;
     box-sizing: border-box;
 }
 
+.del-criterion {
+    background: #d9534f;
+    color: #fff;
+    border: none;
+    padding: 5px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+    white-space: nowrap;
+}
+
+.del-criterion:hover {
+    background: #c9302c;
+}
+
+.options-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 10px;
+}
+
+.options-table th,
+.options-table td {
+    border: 1px solid #ddd;
+    padding: 7px 8px;
+    font-size: 13px;
+}
+
+.options-table th {
+    background: #f0f0f0;
+    font-weight: 600;
+    text-align: left;
+}
+
+.options-table input {
+    width: 100%;
+    padding: 5px 6px;
+    box-sizing: border-box;
+    border: 1px solid #ccc;
+    border-radius: 3px;
+}
+
+.options-table td:nth-child(2) {
+    width: 80px;
+}
+
+.options-table td:last-child {
+    width: 50px;
+    text-align: center;
+}
+
+.del-option {
+    background: #d9534f;
+    color: #fff;
+    border: none;
+    padding: 3px 8px;
+    border-radius: 3px;
+    cursor: pointer;
+}
+
+.del-option:hover {
+    background: #c9302c;
+}
+
+.add-option {
+    background: none;
+    border: 1px dashed #888;
+    color: #555;
+    padding: 4px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+}
+
+.add-option:hover {
+    background: #f0f0f0;
+}
+
 /* Buttons */
-.add-rubric {
-    margin-top: 10px;
+.add-criterion {
+    margin-top: 4px;
     color: #fff !important;
     background-color: #69AB4A;
     border-color: #69AB4A;
     box-shadow: none;
     font-weight: 500;
-    padding: 10px 16px;
-    font-size: 18px;
+    padding: 8px 16px;
+    font-size: 15px;
     border-radius: 6px;
-    text-align: center;
 }
 
-.rubric-table .del {
-    background: #d9534f;
-    color: #fff;
-    border: none;
-    padding: 4px 8px;
-    cursor: pointer;
+.add-criterion:hover {
+    background-color: #5a9a3c;
+    border-color: #5a9a3c;
 }
 
 .tas-edit-block #tas_edit_instructions {
