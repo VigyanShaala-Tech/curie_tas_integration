@@ -381,6 +381,7 @@
   "version_number": 1,
   "submitted_at": null,
   "pdf_url": "",
+  "feedback": null,
   "created_at": "2026-04-10T08:00:00Z",
   "updated_at": "2026-04-10T08:00:00Z"
 }
@@ -411,6 +412,7 @@
   "version_number": 2,
   "submitted_at": null,
   "pdf_url": "",
+  "feedback": null,
   "created_at": "2026-04-10T08:00:00Z",
   "updated_at": "2026-04-10T09:00:00Z"
 }
@@ -445,6 +447,7 @@
   "version_number": 3,
   "submitted_at": null,
   "pdf_url": "",
+  "feedback": null,
   "created_at": "2026-04-10T08:00:00Z",
   "updated_at": "2026-04-10T10:00:00Z"
 }
@@ -556,8 +559,9 @@
       "id": 100,
       "username": "learner1",
       "submission_date": "2026-04-10T10:30:00Z",
-      "grade": "N/A",
-      "grading_status": "submitted"
+      "status": "submitted",
+      "version_number": 4,
+      "feedback_status": "approved"
     }
   ]
 }
@@ -582,11 +586,22 @@
   "usage_key": "block-v1:Org+Course+Run+type@tas+block@unit1",
   "submission_date": "2026-04-10T10:30:00Z",
   "status": "submitted",
-  "version": 4,
+  "version_number": 4,
   "form_data": {
     "answer_1": "Final answer"
   },
-  "pdf": "/media/tas/submissions/pdfs/submission-100.pdf"
+  "pdf": "https://example.com/media/tas/submissions/pdfs/submission-100.pdf",
+  "feedback": {
+    "status": "approved",
+    "comment": "Good effort. Improve structure.",
+    "rubrics": [
+      {
+        "criterion": "Ideas",
+        "selected_option": "Very Good",
+        "marks": 5
+      }
+    ]
+  }
 }
 ```
 
@@ -607,8 +622,39 @@
   "instructions": "Read carefully and submit your best work.",
   "rubrics": [
     {
-      "title": "Clarity",
-      "max_score": 5
+      "criterion": "Ideas",
+      "options": [
+        {
+          "name": "Very Good",
+          "marks": 5,
+          "description": "Ideas are clearly expressed and well-developed."
+        },
+        {
+          "name": "Good",
+          "marks": 3,
+          "description": "Ideas are mostly clear with some development."
+        },
+        {
+          "name": "Needs Improvement",
+          "marks": 1,
+          "description": "Ideas are unclear or underdeveloped."
+        }
+      ]
+    },
+    {
+      "criterion": "Structure",
+      "options": [
+        {
+          "name": "Excellent",
+          "marks": 5,
+          "description": "Well-organized with clear introduction and conclusion."
+        },
+        {
+          "name": "Satisfactory",
+          "marks": 3,
+          "description": "Adequate structure with minor gaps."
+        }
+      ]
     }
   ]
 }
@@ -635,8 +681,14 @@ To Approve Submission:
 {
   "rubrics": [
     {
-      "title": "Clarity",
-      "score": 4
+      "criterion": "Ideas",
+      "selected_option": "Very Good",
+      "marks": 5
+    },
+    {
+      "criterion": "Structure",
+      "selected_option": "Satisfactory",
+      "marks": 3
     }
   ],
   "comment": "Good effort. Improve structure.",
@@ -662,4 +714,3 @@ To Approve Submission:
 - `401 Unauthorized` - Missing/invalid authentication.
 - `403 Forbidden` - Authenticated but not permitted.
 - `404 Not Found` - Resource does not exist.
-- `409 Conflict` - Attempt to modify finalized submission.
