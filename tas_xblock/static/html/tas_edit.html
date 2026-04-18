@@ -1,84 +1,92 @@
 {% load i18n %}
 
-<!-- ================= TABS ================= -->
-
-<div class="tas-tabs">
-    <button class="tab-btn active" data-tab="settings">Settings</button>
-    <button class="tab-btn" data-tab="rubrics">Rubrics</button>
-</div>
-
-<!-- ================= SETTINGS TAB ================= -->
-
-<div class="tab-content settings-tab active">
-    <div class="wrapper-comp-settings editor-with-buttons is-active tas-edit-block"
-     id="settings-tab"
-     data-rubrics='{{ rubrics|safe }}'>
-
-    <ul class="list-input settings-list">
-        
-        <li class="field comp-setting-entry is-set">
-            <div class="wrapper-comp-setting">
-                <label class="label setting-label" for="tas_edit_display_name">{% trans "Display Name" %}</label>
-                <input class="input setting-input" id="tas_edit_display_name" value="{{ display_name }}" type="text">
+<div class="tas-editor" id="settings-tab" data-rubrics='{{ rubrics|safe }}'>
+    <nav class="te-tabs" role="tablist">
+        <button class="te-tab active" data-tab="settings" role="tab" aria-selected="true">
+            <svg class="te-tab-icon" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clip-rule="evenodd"/></svg>
+            {% trans "Settings" %}
+        </button>
+        <button class="te-tab" data-tab="rubrics" role="tab" aria-selected="false">
+            <svg class="te-tab-icon" viewBox="0 0 20 20" fill="currentColor"><path d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9z"/><path fill-rule="evenodd" d="M4 5a2 2 0 012-2 3 3 0 003 3h2a3 3 0 003-3 2 2 0 012 2v11a2 2 0 01-2 2H6a2 2 0 01-2-2V5zm3 4a1 1 0 000 2h.01a1 1 0 100-2H7zm3 0a1 1 0 000 2h3a1 1 0 100-2h-3zm-3 4a1 1 0 000 2h.01a1 1 0 100-2H7zm3 0a1 1 0 000 2h3a1 1 0 100-2h-3z" clip-rule="evenodd"/></svg>
+            {% trans "Rubrics" %}
+            <span class="te-rubric-count" style="display:none"></span>
+        </button>
+    </nav>
+    <div class="te-tab-panel active" data-panel="settings">
+        <div class="te-field-card">
+            <label class="te-label" for="tas_edit_display_name">
+                {% trans "Display Name" %}
+                <span class="te-required">*</span>
+            </label>
+            <input class="te-input" id="tas_edit_display_name" type="text"
+                   value="{{ display_name }}"
+                   placeholder="{% trans 'e.g. Research Paper Assignment' %}">
+            <p class="te-hint">{% trans "Shown in the course navigation bar above the component." %}</p>
+        </div>
+        <div class="te-row">
+            <div class="te-field-card te-col">
+                <label class="te-label" for="tas_edit_template_type">{% trans "Template Type" %}</label>
+                <div class="te-select-wrap">
+                    <select class="te-select" id="tas_edit_template_type">
+                        <option value="">{% trans "— Select a type —" %}</option>
+                        {% for template_type in assignment_template_types %}
+                            <option value="{{ template_type.id }}"
+                                {% if template_type.id|stringformat:"s" == current_template_type %}selected{% endif %}>
+                                {{ template_type.name }}
+                            </option>
+                        {% endfor %}
+                    </select>
+                    <svg class="te-select-arrow" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
+                </div>
+                <p class="te-hint">{% trans "Categorises the assignment template." %}</p>
             </div>
-            <span class="tip setting-help">{% trans "This name appears in the horizontal navigation at the top of the page." %}</span>
-        </li>
-        
-        <li class="field comp-setting-entry is-set">
-            <div class="wrapper-comp-setting">
-                <label class="label setting-label" for="tas_edit_template_type">{% trans "Template Type" %}</label>
-                <select class="input setting-input" id="tas_edit_template_type">
-                    {% for template_type in assignment_template_types %}
-                        <option value="{{ template_type.id }}" {% if template_type.id|stringformat:"s" == current_template_type %}selected{% endif %}>
-                            {{ template_type.name }}
-                        </option>
-                    {% endfor %}
-                </select>
+            <div class="te-field-card te-col">
+                <label class="te-label" for="tas_edit_template">{% trans "Template" %}</label>
+                <div class="te-select-wrap">
+                    <select class="te-select" id="tas_edit_template">
+                        <option value="">{% trans "— Select a template —" %}</option>
+                        {% for template in assignment_templates %}
+                            <option value="{{ template.id }}"
+                                {% if template.id|stringformat:"s" == current_template %}selected{% endif %}>
+                                {{ template.name }}
+                            </option>
+                        {% endfor %}
+                    </select>
+                    <svg class="te-select-arrow" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
+                </div>
+                <p class="te-hint">{% trans "The form layout students will fill in." %}</p>
             </div>
-            <span class="tip setting-help">{% trans "Select type of the template to use for the template based assignment." %}</span>
-        </li>
-        
-        <li class="field comp-setting-entry is-set">
-            <div class="wrapper-comp-setting">
-                <label class="label setting-label" for="tas_edit_template">{% trans "Template" %}</label>
-                <select class="input setting-input" id="tas_edit_template">
-                    {% for template in assignment_templates %}
-                        <option value="{{ template.id }}" {% if template.id|stringformat:"s" == current_template %}selected{% endif %}>
-                            {{ template.name }}
-                        </option>
-                    {% endfor %}
-                </select>
+        </div>
+        <div class="te-field-card">
+            <label class="te-label" for="tas_edit_instructions">{% trans "Student Instructions" %}</label>
+            <textarea class="te-input te-textarea" id="tas_edit_instructions"
+                      rows="5"
+                      placeholder="{% trans 'Describe what students need to do to complete this assignment…' %}">{{ instructions }}</textarea>
+            <p class="te-hint">{% trans "Displayed to students before they open the submission form." %}</p>
+        </div>
+    </div>
+    <div class="te-tab-panel" data-panel="rubrics">
+        <div class="te-rubrics-header">
+            <div>
+                <h3 class="te-rubrics-title">{% trans "Grading Rubrics" %}</h3>
+                <p class="te-rubrics-subtitle">{% trans "Add criteria and define score options for each. Instructors use these when grading submissions." %}</p>
             </div>
-            <span class="tip setting-help">{% trans "Select the template to use for the template based assignment." %}</span>
-        </li>
+            <button type="button" class="te-btn te-btn-primary add-criterion">
+                <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clip-rule="evenodd"/></svg>
+                {% trans "Add Criterion" %}
+            </button>
+        </div>
 
-        <li class="field comp-setting-entry is-set">
-            <div class="wrapper-comp-setting">
-                <label class="label setting-label" for="tas_edit_instructions">{% trans "Instructions" %}</label>
-                <textarea class="input setting-input" id="tas_edit_instructions" rows="4">{{ instructions }}</textarea>
+        <div class="criteria-list"></div>
+
+        <div class="te-empty-state">
+            <div class="te-empty-icon">
+                <svg viewBox="0 0 64 64" fill="none"><rect x="8" y="8" width="48" height="48" rx="6" fill="#eef7e8"/><path d="M22 24h20M22 32h20M22 40h12" stroke="#69AB4A" stroke-width="2.5" stroke-linecap="round"/></svg>
             </div>
-            <span class="tip setting-help">{% trans "Write instructions for the student to follow while submitting the assignment." %}</span>
-        </li>
-
-    </ul>
-
-</div>
-
-</div>
-
-<!-- ================= RUBRICS TAB ================= -->
-
-<div class="tas-rubrics-section tab-content rubrics-tab">
-
-<h3>Rubrics</h3>
-<p class="rubrics-help">{% trans "Define each grading criterion and its scoring options." %}</p>
-
-<div class="criteria-list"></div>
-
-<button type="button" class="add-criterion button action-primary">+ {% trans "Add Criterion" %}</button>
-
-</div>
-
+            <p class="te-empty-title">{% trans "No rubrics yet" %}</p>
+            <p class="te-empty-sub">{% trans 'Click "Add Criterion" to define your first grading criterion.' %}</p>
+        </div>
+    </div>
     <div class="xblock-actions">
         <ul>
             <li class="action-item">
@@ -89,3 +97,4 @@
             </li>
         </ul>
     </div>
+</div>
