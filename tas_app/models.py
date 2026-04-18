@@ -270,7 +270,7 @@ class Submission(TimeStampedModel):
         """
         defaults = {"form_data": self.form_data}
         if include_pdf:
-            defaults["pdf"] = self.pdf or None
+            defaults["pdf"] = self.pdf if self.pdf else None
         SubmissionVersion.objects.update_or_create(
             submission=self,
             version_number=self.version_number,

@@ -1,3 +1,6 @@
+import logging
+
+from django.core.exceptions import ObjectDoesNotExist
 from django.utils import timezone
 from django.db import IntegrityError, transaction
 from django.shortcuts import get_object_or_404
@@ -10,6 +13,10 @@ from rest_framework.generics import ListCreateAPIView
 from rest_framework import status
 from rest_framework import permissions
 from rest_framework.exceptions import NotFound
+
+from .pdf_generator import generate_submission_pdf
+
+logger = logging.getLogger(__name__)
 
 from .models import (
     TemplateType,
@@ -349,7 +356,7 @@ class LearnerSubmissionsAPIView(APIView):
         for sub in page:
             try:
                 feedback_status = sub.feedback.status
-            except Exception:
+            except ObjectDoesNotExist:
                 feedback_status = None
             results.append({
                 "id": sub.id,
@@ -421,12 +428,14 @@ class LearnerSubmissionDetailAPIView(APIView):
                 "rubrics": fb.rubrics,
                 "versions": versions,
             }
-        except Exception:
+        except ObjectDoesNotExist:
             pass
 
         # Include submission version history — only submitted versions (have a PDF)
         version_history = []
-        for v in submission.tas_submission_versions.exclude(pdf="").exclude(pdf=None).order_by("-version_number"):
+        for v in submission.tas_submission_versions.exclude(pdf="").exclude(pdf=None).order_by("-version_number").only(
+            "version_number", "saved_at", "form_data", "pdf"
+        ):
             v_pdf_url = request.build_absolute_uri(v.pdf.url) if v.pdf else None
             version_history.append({
                 "version_number": v.version_number,
@@ -625,18 +634,15 @@ class StudentSubmissionCreateAPIView(APIView):
                 )
                 created = submission is None
 
-                if submission and submission.status == Submission.STATUS_SUBMITTED:
-                    return submission, False
-
                 if submission:
-                    # If submission is rejected/approved, just return it as-is (student is viewing)
+                    # If submission is not a draft (submitted/rejected/approved), return as-is
                     if submission.status not in (Submission.STATUS_DRAFT,):
                         return submission, False
 
                     submission.template_block = template_block
-                    # Only overwrite form_data if the caller sent real data.
-                    # An empty dict means "get existing draft" — preserve saved answers.
-                    if form_data:
+                    # Only overwrite form_data when the caller explicitly sends data.
+                    # None means "get existing draft" — preserve saved answers.
+                    if form_data is not None:
                         submission.form_data = form_data
                     submission.status = new_status
                     submission.version_number += 1
@@ -668,12 +674,10 @@ class StudentSubmissionCreateAPIView(APIView):
                     course_key=course_key,
                     usage_key=usage_key,
                 )
-                if submission.status == Submission.STATUS_SUBMITTED:
-                    return submission, False
                 if submission.status not in (Submission.STATUS_DRAFT,):
                     return submission, False
                 submission.template_block = template_block
-                if form_data:
+                if form_data is not None:
                     submission.form_data = form_data
                 submission.status = new_status
                 submission.version_number += 1
@@ -791,11 +795,9 @@ class StudentSubmissionSubmitAPIView(APIView):
 
         # Generate PDF before snapshot so pdf is captured in version history
         try:
-            from .pdf_generator import generate_submission_pdf
             generate_submission_pdf(submission)
         except Exception as exc:  # noqa: BLE001
-            import logging
-            logging.getLogger(__name__).warning("PDF generation failed for submission %s: %s", submission.pk, exc)
+            logger.warning("PDF generation failed for submission %s: %s", submission.pk, exc)
 
         submission.create_version_snapshot(include_pdf=True)
 

@@ -12,7 +12,7 @@ from xblockutils.resources import ResourceLoader
 
 from django.contrib.auth.models import User
 from lms.djangoapps.courseware.access import has_access
-from tas_app.models import TemplateBlock, Template, TemplateType, Submission, InstructorFeedback
+from tas_app.models import TemplateBlock, Template, TemplateType, Submission
 
 
 def _(text):

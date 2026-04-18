@@ -6,12 +6,13 @@ student-filled field values at the correct percentage-based positions.
 """
 
 import io
-import os
-import urllib.request
+import logging
 
 from django.core.files.base import ContentFile
 from reportlab.lib.utils import ImageReader
 from reportlab.pdfgen import canvas as rl_canvas
+
+logger = logging.getLogger(__name__)
 
 
 def generate_submission_pdf(submission):
@@ -45,7 +46,7 @@ def generate_submission_pdf(submission):
             c.drawImage(img_reader, 0, 0, width=page_w, height=page_h,
                         preserveAspectRatio=True, anchor='c')
         except Exception:
-            pass  # no background if image missing
+            logger.warning("PDF background image missing or unreadable for submission %s", submission.id)
 
     # ── Field values ──────────────────────────────────────────────────────────
     # reportlab origin is bottom-left; frontend uses top-left percentages.
@@ -68,7 +69,7 @@ def generate_submission_pdf(submission):
         # reportlab y is from bottom
         y_bottom = page_h - y_top - h
 
-        font_size = max(7, h * 0.55)
+        font_size = min(max(7, h * 0.55), 24)
         c.setFont('Helvetica', font_size)
         c.setFillColorRGB(0.067, 0.094, 0.153)  # #111827
 
