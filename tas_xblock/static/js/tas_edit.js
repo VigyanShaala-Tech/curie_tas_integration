@@ -134,7 +134,7 @@ function TASXBlockInitEdit(runtime, element) {
         return $(
             '<div class="option-row">' +
                 '<input type="text" class="opt-input opt-name" placeholder="Option name"  value="' + escAttr(name)          + '">' +
-                '<input type="text" class="opt-input opt-desc" placeholder="Description"  value="' + escAttr(description)   + '">' +
+                '<textarea class="opt-input opt-desc" placeholder="Description" rows="2">' + escAttr(description) + '</textarea>' +
                 '<input type="text" class="opt-marks"          placeholder="0"            value="' + escAttr(String(marks)) + '">' +
                 '<button type="button" class="del-option" title="Remove option">' + TRASH_SVG + '</button>' +
             '</div>'

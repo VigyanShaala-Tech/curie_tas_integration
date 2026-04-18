@@ -439,7 +439,7 @@
     display: grid;
     grid-template-columns: 1fr 2fr 80px 36px;
     gap: 8px;
-    align-items: center;
+    align-items: start;
     background: var(--te-bg);
     border: 1.5px solid var(--te-border);
     border-radius: var(--te-radius-sm);
@@ -483,6 +483,13 @@
     color: #b8c4cf;
 }
 
+textarea.opt-desc {
+    resize: vertical;
+    min-height: 54px;
+    line-height: 1.45;
+    font-family: inherit;
+}
+
 .opt-marks {
     width: 100%;
     padding: 6px 9px;
@@ -515,6 +522,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
+    margin-top: 4px;
     background: none;
     border: 1px solid transparent;
     border-radius: 5px;

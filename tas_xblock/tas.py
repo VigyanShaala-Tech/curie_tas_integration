@@ -65,7 +65,53 @@ class TASXBlock(XBlock):
     rubrics = List(
         display_name=_("Rubrics"),
         scope=Scope.settings,
-        default=[],
+        default=[
+            {
+                "criterion": "Ideas",
+                "options": [
+                    {
+                        "name": "Poor",
+                        "marks": 1,
+                        "description": "Difficult for the reader to discern the main idea.  Too brief or too repetitive to establish or maintain a focus.",
+                    },
+                    {
+                        "name": "Fair",
+                        "marks": 3,
+                        "description": "Presents a unifying theme or main idea, but may include minor tangents.  Stays somewhat focused on topic and task.",
+                    },
+                    {
+                        "name": "Good",
+                        "marks": 5,
+                        "description": "Presents a unifying theme or main idea without going off on tangents.  Stays completely focused on topic and task.",
+                    },
+                ],
+            },
+            {
+                "criterion": "Content",
+                "options": [
+                    {
+                        "name": "Poor",
+                        "marks": 1,
+                        "description": "Includes little information with few or no details or unrelated details.  Unsuccessful in attempts to explore any facets of the topic.",
+                    },
+                    {
+                        "name": "Fair",
+                        "marks": 2,
+                        "description": "Includes little information and few or no details.  Explores only one or two facets of the topic.",
+                    },
+                    {
+                        "name": "Good",
+                        "marks": 3,
+                        "description": "Includes sufficient information and supporting details. (Details may not be fully developed; ideas may be listed.)  Explores some facets of the topic.",
+                    },
+                    {
+                        "name": "Excellent",
+                        "marks": 5,
+                        "description": "Includes in-depth information and exceptional supporting details that are fully developed.  Explores all facets of the topic.",
+                    },
+                ],
+            },
+        ],
         help=_("List of rubrics for evaluation"),
     )
 
