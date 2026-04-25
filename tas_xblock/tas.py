@@ -152,11 +152,11 @@ class TASXBlock(XBlock):
         assigment_review_url = f"{TAS_MICROFRONTEND_URL}/instructor/grade-submissions/{self.location}"
         assigment_status, assigment_pdf_url, assigment_feedback = self.get_assigment_status()
 
-        # Publish grade to the LMS gradebook when a student's submission has been
-        # approved by an instructor.  This uses the "lazy publish" pattern: the
-        # grade is (re-)published each time the student loads the page so it
-        # always reflects the latest approved feedback without requiring the
-        # instructor-facing REST API to have direct access to the XBlock runtime.
+        # Fallback grade publish: the grade is normally pushed immediately when
+        # the instructor approves a submission (via the push_grade_to_lms Celery
+        # task).  Re-publishing here ensures the LMS gradebook stays in sync even
+        # if the async task was missed or not yet processed when the student loads
+        # the page.
         assigment_earned_score = None
         assigment_max_score = None
         if not is_course_staff and assigment_status == "approved" and assigment_feedback:
