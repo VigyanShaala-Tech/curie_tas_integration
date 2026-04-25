@@ -18,6 +18,7 @@ from .models import (
     TemplateType,
     Template,
     TemplateBlock,
+    Rubric,
     Submission,
     SubmissionVersion,
     InstructorFeedback,
@@ -59,18 +60,38 @@ class TemplateAdmin(admin.ModelAdmin):
 
 
 # -------------------------------
+# Admin configuration for Rubric model
+# -------------------------------
+@admin.register(Rubric)
+class RubricAdmin(admin.ModelAdmin):
+    list_display = ("name", "is_active", "created")
+    search_fields = ("name",)
+    list_filter = ("is_active",)
+    ordering = ("name",)
+
+
+# -------------------------------
 # Admin configuration for TemplateBlock model
 # -------------------------------
 @admin.register(TemplateBlock)
 class TemplateBlockAdmin(admin.ModelAdmin):
     # Fields to display in the list view for better block management
-    list_display = ("template", "display_name", "usage_key", "course_key", "sort_order", "assigned_by", "assigned_at")
-    # Enable searching by related template name, usage key, and course key
-    search_fields = ("template__name", "usage_key", "course_key")
-    # Filter by template and course for easy navigation
-    list_filter = ("template", "course_key")
+    list_display = (
+        "template",
+        "display_name",
+        "rubric",
+        "usage_key",
+        "course_key",
+        "sort_order",
+        "assigned_by",
+        "assigned_at",
+    )
+    # Enable searching by related template name, rubric name, usage key, and course key
+    search_fields = ("template__name", "rubric__name", "usage_key", "course_key")
+    # Filter by template, rubric, and course for easy navigation
+    list_filter = ("template", "rubric", "course_key")
     # Use raw_id_fields for related fields to aid in performance
-    raw_id_fields = ("template", "assigned_by")
+    raw_id_fields = ("template", "rubric", "assigned_by")
     # Order by assignment time, course, usage, and sort order
     ordering = ("-assigned_at", "course_key", "usage_key", "sort_order")
 

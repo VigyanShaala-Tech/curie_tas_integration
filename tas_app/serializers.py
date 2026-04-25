@@ -2,7 +2,7 @@ from opaque_keys import InvalidKeyError
 from opaque_keys.edx.keys import CourseKey, UsageKey
 from rest_framework import serializers
 
-from .models import InstructorFeedback, Submission, Template, TemplateType, TemplateBlock, STATUS_CHOICES
+from .models import InstructorFeedback, Rubric, Submission, Template, TemplateType, TemplateBlock, STATUS_CHOICES
 
 
 class TemplateTypeSerializer(serializers.ModelSerializer):
@@ -33,6 +33,15 @@ class TemplateSerializer(serializers.ModelSerializer):
             "is_public",
             "is_active",
         ]
+        read_only_fields = ["id"]
+
+
+class RubricSerializer(serializers.ModelSerializer):
+    """Serializer for Rubric model."""
+
+    class Meta:
+        model = Rubric
+        fields = ["id", "name", "criteria", "is_active"]
         read_only_fields = ["id"]
 
 

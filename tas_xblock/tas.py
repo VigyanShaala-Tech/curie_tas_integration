@@ -1,18 +1,17 @@
 """TO-DO: Write a description of what this XBlock is."""
 
 import os
-import json
 import pkg_resources
 from django.template import Context
 from django.conf import settings
 from xblock.core import XBlock
-from xblock.fields import Float, Scope, String, List
+from xblock.fields import Float, Scope, String
 from xblock.fragment import Fragment
 from xblockutils.resources import ResourceLoader
 
 from django.contrib.auth.models import User
 from lms.djangoapps.courseware.access import has_access
-from tas_app.models import TemplateBlock, Template, TemplateType, Submission
+from tas_app.models import TemplateBlock, Template, TemplateType, Submission, Rubric
 
 
 def _(text):
@@ -63,57 +62,11 @@ class TASXBlock(XBlock):
         help=_("Write instructions for the student to follow while submitting the assignment."),
     )
 
-    rubrics = List(
-        display_name=_("Rubrics"),
+    rubric_id = String(
+        display_name=_("Rubric"),
         scope=Scope.settings,
-        default=[
-            {
-                "criterion": "Ideas",
-                "options": [
-                    {
-                        "name": "Poor",
-                        "marks": 1,
-                        "description": "Difficult for the reader to discern the main idea.  Too brief or too repetitive to establish or maintain a focus.",
-                    },
-                    {
-                        "name": "Fair",
-                        "marks": 3,
-                        "description": "Presents a unifying theme or main idea, but may include minor tangents.  Stays somewhat focused on topic and task.",
-                    },
-                    {
-                        "name": "Good",
-                        "marks": 5,
-                        "description": "Presents a unifying theme or main idea without going off on tangents.  Stays completely focused on topic and task.",
-                    },
-                ],
-            },
-            {
-                "criterion": "Content",
-                "options": [
-                    {
-                        "name": "Poor",
-                        "marks": 1,
-                        "description": "Includes little information with few or no details or unrelated details.  Unsuccessful in attempts to explore any facets of the topic.",
-                    },
-                    {
-                        "name": "Fair",
-                        "marks": 2,
-                        "description": "Includes little information and few or no details.  Explores only one or two facets of the topic.",
-                    },
-                    {
-                        "name": "Good",
-                        "marks": 3,
-                        "description": "Includes sufficient information and supporting details. (Details may not be fully developed; ideas may be listed.)  Explores some facets of the topic.",
-                    },
-                    {
-                        "name": "Excellent",
-                        "marks": 5,
-                        "description": "Includes in-depth information and exceptional supporting details that are fully developed.  Explores all facets of the topic.",
-                    },
-                ],
-            },
-        ],
-        help=_("List of rubrics for evaluation"),
+        default="",
+        help=_("ID of the Rubric record from the library to use for grading this assignment."),
     )
 
     weight = Float(
@@ -170,13 +123,18 @@ class TASXBlock(XBlock):
         """
         Return the maximum achievable score across all rubric criteria.
 
-        For each criterion the maximum is the highest marks value among its
-        options.  The overall maximum is the sum of per-criterion maximums.
-        Returns None when no rubrics are configured so the runtime treats this
-        block as ungraded until rubrics are set.
+        Fetches criteria from the linked Rubric record. Returns None when no
+        rubric is selected or the record is missing, so the runtime treats this
+        block as ungraded.
         """
+        if not self.rubric_id:
+            return None
+        try:
+            rubric = Rubric.objects.get(pk=self.rubric_id, is_active=True)
+        except (Rubric.DoesNotExist, ValueError):
+            return None
         total = 0
-        for criterion in self.rubrics:
+        for criterion in rubric.criteria:
             options = criterion.get("options", [])
             if options:
                 total += max((opt.get("marks", 0) for opt in options), default=0)
@@ -245,6 +203,7 @@ class TASXBlock(XBlock):
         """
         assignment_template_types = TemplateType.objects.all()
         assignment_templates = Template.objects.all()
+        available_rubrics = Rubric.objects.filter(is_active=True).order_by("name")
         context = {
             "display_name": self.display_name,
             "current_template_type": self.template_type,
@@ -252,7 +211,8 @@ class TASXBlock(XBlock):
             "assignment_template_types": assignment_template_types,
             "assignment_templates": assignment_templates,
             "instructions": self.instructions,
-            "rubrics": json.dumps(self.rubrics),
+            "current_rubric_id": self.rubric_id,
+            "available_rubrics": available_rubrics,
         }
         html = self.render_template("tas_edit.html", context)
 
@@ -281,7 +241,7 @@ class TASXBlock(XBlock):
         self.template_type = data.get("template_type", self.template_type)
         self.template = data.get("template", self.template)
         self.instructions = data.get("instructions", self.instructions)
-        self.rubrics = data.get("rubrics", [])
+        self.rubric_id = data.get("rubric_id", self.rubric_id)
 
         try:
             # Fetch associated Template object (raise clear error if not found).
@@ -296,6 +256,14 @@ class TASXBlock(XBlock):
         except User.DoesNotExist:
             return {"result": "error", "message": "User not found."}
 
+        # Resolve the Rubric record from the selected rubric_id.
+        rubric_obj = None
+        if self.rubric_id:
+            try:
+                rubric_obj = Rubric.objects.get(pk=self.rubric_id, is_active=True)
+            except (Rubric.DoesNotExist, ValueError):
+                return {"result": "error", "message": "Selected rubric not found."}
+
         # Persist changes to TemplateBlock, creating or updating as needed.
         TemplateBlock.objects.update_or_create(
             usage_key=str(self.location),  # XBlock instance usage key
@@ -304,7 +272,7 @@ class TASXBlock(XBlock):
                 "template": template_obj,
                 "display_name": self.display_name,
                 "instructions": self.instructions,
-                "rubrics": self.rubrics,
+                "rubric": rubric_obj,
                 "assigned_by": user,
                 "sort_order": 0,
             },

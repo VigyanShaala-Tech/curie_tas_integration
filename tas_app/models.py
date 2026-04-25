@@ -100,7 +100,9 @@ class Template(TimeStampedModel):
     )
     created_by = models.ForeignKey(
         User,
-        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
         related_name="created_templates",
         help_text="User who created/owns the template.",
     )
@@ -129,6 +131,39 @@ class Template(TimeStampedModel):
         return None
 
 
+class Rubric(TimeStampedModel):
+    """
+    Stores a reusable rubric definition that can be referenced when configuring
+    TemplateBlock assignments.
+
+    - name: human-readable label for the rubric.
+    - criteria: structured list of criterion objects (name, options, marks, etc.).
+    - is_active: soft-delete flag; inactive rubrics are hidden from user-facing views.
+    """
+
+    name = models.TextField(
+        db_index=True,
+        help_text="Human-readable name of the rubric (e.g., 'Essay Rubric').",
+    )
+    criteria = models.JSONField(
+        default=list,
+        help_text="Structured list of rubric criteria. Each entry defines a criterion name, options, and marks.",
+    )
+    is_active = models.BooleanField(
+        default=True,
+        db_index=True,
+        help_text="Set False to deactivate this rubric without deleting it.",
+    )
+
+    class Meta:
+        ordering = ["name"]
+        verbose_name = "Rubric"
+        verbose_name_plural = "Rubrics"
+
+    def __str__(self):
+        return self.name if self.name else f"Rubric-{self.pk}"
+
+
 class TemplateBlock(TimeStampedModel):
     """
     Represents the assignment configuration for a single Open edX unit.
@@ -151,13 +186,23 @@ class TemplateBlock(TimeStampedModel):
     course_key = CourseKeyField(max_length=255, db_index=True, help_text="Opaque key identifying the Open edX course.")
     display_name = models.CharField(max_length=255, default="Template Based Assignment")
     instructions = models.TextField(blank=True, default="")
-    rubrics = models.JSONField(default=list, blank=True)
+    rubric = models.ForeignKey(
+        Rubric,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="template_blocks",
+        db_index=True,
+        help_text="Reference to the rubric used in this block.",
+    )
     sort_order = models.PositiveIntegerField(
         default=0, help_text="Defines the order in which templates are rendered within a unit."
     )
     assigned_by = models.ForeignKey(
         User,
-        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
         related_name="assigned_templates",
         help_text="Identifier for the user who performed the assignment.",
     )
@@ -333,7 +378,9 @@ class InstructorFeedback(TimeStampedModel):
     )
     instructor = models.ForeignKey(
         User,
-        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
         help_text="Instructor who provided this feedback.",
         related_name="given_feedbacks",
     )
@@ -402,7 +449,9 @@ class InstructorFeedbackVersion(TimeStampedModel):
     )
     instructor = models.ForeignKey(
         User,
-        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
         help_text="Instructor who provided this feedback.",
         related_name="given_instructor_feedback_versions",
     )
