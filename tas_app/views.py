@@ -22,6 +22,7 @@ from .models import (
     TemplateType,
     Template,
     TemplateBlock,
+    Rubric,
     Submission,
     InstructorFeedback,
     STATUS_PENDING,
@@ -30,6 +31,7 @@ from .models import (
 )
 from .serializers import (
     InstructorFeedbackUpsertSerializer,
+    RubricSerializer,
     TemplateTypeSerializer,
     TemplateSerializer,
     StudentSubmissionCreateSerializer,
@@ -281,6 +283,74 @@ class TemplatesDetailView(APIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
+class RubricsListView(ListCreateAPIView):
+    """
+    API view to retrieve the list of rubrics or create a new rubric.
+    Only accessible to admin users.
+
+    GET /tas/api/v1/rubrics/
+        Returns a paginated list of Rubric records ordered by name.
+        Query params:
+            is_active (optional): true | false — filter by active status.
+
+    POST /tas/api/v1/rubrics/
+        Creates a new Rubric. Requires 'name' and 'criteria'.
+    """
+
+    queryset = Rubric.objects.all().order_by("name").only("id", "name", "criteria", "is_active")
+    serializer_class = RubricSerializer
+    permission_classes = [permissions.IsAdminUser]
+    pagination_class = CustomizedPageNumberPagination
+    authentication_classes = [JwtAuthentication, SessionAuthentication]
+
+    def get_queryset(self):
+        queryset = self.queryset
+        is_active = self.request.query_params.get("is_active")
+        if is_active is not None:
+            queryset = queryset.filter(is_active=is_active.lower() == "true")
+        return queryset
+
+
+class RubricsDetailView(APIView):
+    """
+    API view to retrieve, update, and soft-delete a rubric by id.
+    Only accessible to admin users.
+
+    GET    /tas/api/v1/rubrics/{pk}/  — retrieve rubric detail.
+    PATCH  /tas/api/v1/rubrics/{pk}/  — partially update the rubric.
+    DELETE /tas/api/v1/rubrics/{pk}/  — soft-delete (sets is_active=False).
+    """
+
+    permission_classes = [permissions.IsAdminUser]
+    authentication_classes = [JwtAuthentication, SessionAuthentication]
+
+    def get_object(self, pk):
+        try:
+            return Rubric.objects.only("id", "name", "criteria", "is_active").get(pk=pk)
+        except Rubric.DoesNotExist:
+            raise NotFound("Rubric not found.")
+
+    def get(self, request, pk):
+        rubric = self.get_object(pk)
+        serializer = RubricSerializer(rubric)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    def patch(self, request, pk):
+        rubric = self.get_object(pk)
+        serializer = RubricSerializer(rubric, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    def delete(self, request, pk):
+        rubric = self.get_object(pk)
+        if not rubric.is_active:
+            return Response({"detail": "Rubric is already inactive."}, status=status.HTTP_400_BAD_REQUEST)
+        rubric.is_active = False
+        rubric.save(update_fields=["is_active", "modified"])
+        return Response(status=status.HTTP_200_OK)
+
+
 class TemplateBlockDetailView(APIView):
     """
     API view to retrieve details for a TemplateBlock associated with the given usage_key.
@@ -490,9 +560,12 @@ class RubricsAPIView(APIView):
         Retrieve rubrics and metadata for the given TemplateBlock by usage_key.
         Returns 404 if the block does not exist.
         """
-        # Use .only() to fetch just the needed fields for optimization
         try:
-            block = TemplateBlock.objects.only("display_name", "instructions", "rubrics").get(usage_key=usage_key)
+            block = (
+                TemplateBlock.objects.select_related("rubric")
+                .only("display_name", "instructions", "rubric")
+                .get(usage_key=usage_key)
+            )
         except TemplateBlock.DoesNotExist:
             return Response(
                 {"detail": "Template block with specified usage_key not found."},
@@ -501,7 +574,7 @@ class RubricsAPIView(APIView):
         data = {
             "display_name": block.display_name,
             "instructions": block.instructions,
-            "rubrics": block.rubrics,
+            "rubrics": block.rubric.criteria if block.rubric else [],
         }
 
         return Response(data, status=status.HTTP_200_OK)

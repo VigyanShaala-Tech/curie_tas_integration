@@ -312,7 +312,153 @@
 
 ---
 
-## 5) Block Template Details
+## 5) Rubrics - List / Create
+
+- **Title**: Rubrics
+- **Endpoint**: `GET /tas/api/v1/rubrics/`
+- **Request Type**: `GET`
+- **Query Params**:
+  - `is_active` (optional): `true` or `false`
+- **Payload**: Not required
+- **Response Code**: `200 OK`
+- **Response Example**:
+
+```json
+{
+  "count": 2,
+  "next": null,
+  "previous": null,
+  "results": [
+    {
+      "id": 1,
+      "name": "Essay Rubric",
+      "criteria": [
+        {
+          "criterion": "Ideas",
+          "options": [
+            { "name": "Poor", "marks": 1, "description": "Ideas are unclear." },
+            { "name": "Good", "marks": 3, "description": "Ideas are mostly clear." },
+            { "name": "Excellent", "marks": 5, "description": "Ideas are well-developed." }
+          ]
+        }
+      ],
+      "is_active": true
+    }
+  ]
+}
+```
+
+- **Endpoint**: `POST /tas/api/v1/rubrics/`
+- **Request Type**: `POST`
+- **Payload**:
+
+```json
+{
+  "name": "Case Study Rubric",
+  "criteria": [
+    {
+      "criterion": "Analysis",
+      "options": [
+        { "name": "Needs Improvement", "marks": 1, "description": "Analysis is superficial." },
+        { "name": "Satisfactory", "marks": 3, "description": "Analysis shows understanding." },
+        { "name": "Excellent", "marks": 5, "description": "Analysis is thorough and insightful." }
+      ]
+    }
+  ],
+  "is_active": true
+}
+```
+
+- **Response Code**: `201 Created`
+- **Response Example**:
+
+```json
+{
+  "id": 2,
+  "name": "Case Study Rubric",
+  "criteria": [
+    {
+      "criterion": "Analysis",
+      "options": [
+        { "name": "Needs Improvement", "marks": 1, "description": "Analysis is superficial." },
+        { "name": "Satisfactory", "marks": 3, "description": "Analysis shows understanding." },
+        { "name": "Excellent", "marks": 5, "description": "Analysis is thorough and insightful." }
+      ]
+    }
+  ],
+  "is_active": true
+}
+```
+
+---
+
+## 6) Rubric - Detail / Update / Soft Delete
+
+- **Title**: Rubric Detail
+- **Endpoint**: `GET /tas/api/v1/rubrics/{pk}/`
+- **Request Type**: `GET`
+- **Payload**: Not required
+- **Response Code**: `200 OK`
+- **Response Example**:
+
+```json
+{
+  "id": 1,
+  "name": "Essay Rubric",
+  "criteria": [
+    {
+      "criterion": "Ideas",
+      "options": [
+        { "name": "Poor", "marks": 1, "description": "Ideas are unclear." },
+        { "name": "Good", "marks": 3, "description": "Ideas are mostly clear." },
+        { "name": "Excellent", "marks": 5, "description": "Ideas are well-developed." }
+      ]
+    }
+  ],
+  "is_active": true
+}
+```
+
+- **Endpoint**: `PATCH /tas/api/v1/rubrics/{pk}/`
+- **Request Type**: `PATCH`
+- **Payload**:
+
+```json
+{
+  "name": "Essay Rubric (Revised)"
+}
+```
+
+- **Response Code**: `200 OK`
+- **Response Example**:
+
+```json
+{
+  "id": 1,
+  "name": "Essay Rubric (Revised)",
+  "criteria": [
+    {
+      "criterion": "Ideas",
+      "options": [
+        { "name": "Poor", "marks": 1, "description": "Ideas are unclear." },
+        { "name": "Good", "marks": 3, "description": "Ideas are mostly clear." },
+        { "name": "Excellent", "marks": 5, "description": "Ideas are well-developed." }
+      ]
+    }
+  ],
+  "is_active": true
+}
+```
+
+- **Endpoint**: `DELETE /tas/api/v1/rubrics/{pk}/`
+- **Request Type**: `DELETE`
+- **Payload**: Not required
+- **Response Code**: `204 No Content`
+- **Notes**: Soft-deletes the rubric by setting `is_active=False`. Returns `400 Bad Request` if the rubric is already inactive.
+
+---
+
+## 7) Block Template Details
 
 - **Title**: Template Block Details
 - **Endpoint**: `GET /tas/api/v1/blocks/{usage_key}/templates/`
@@ -345,7 +491,7 @@
 
 ---
 
-## 6) Student Submission - Create or Update
+## 8) Student Submission - Create or Update
 
 - **Title**: Student Submission Create/Update
 - **Endpoint**: `POST /tas/api/v1/student-submission/`
@@ -389,7 +535,7 @@
 
 ---
 
-## 7) Student Submission - Detail / Patch
+## 9) Student Submission - Detail / Patch
 
 - **Title**: Student Submission Detail
 - **Endpoint**: `GET /tas/api/v1/student-submission/{pk}/`
@@ -455,7 +601,7 @@
 
 ---
 
-## 8) Student Submission - Submit
+## 10) Student Submission - Submit
 
 - **Title**: Finalize Student Submission
 - **Endpoint**: `POST /tas/api/v1/student-submission/{pk}/submit/`
@@ -481,7 +627,7 @@
 
 ---
 
-## 9) Student Submission - PDF
+## 11) Student Submission - PDF
 
 - **Title**: Student Submission PDF
 - **Endpoint**: `GET /tas/api/v1/student-submission/{pk}/pdf/`
@@ -507,7 +653,7 @@
 
 ---
 
-## 10) Student Submission - Versions
+## 12) Student Submission - Versions
 
 - **Title**: Student Submission Version History
 - **Endpoint**: `GET /tas/api/v1/student-submission/{pk}/versions/`
@@ -540,7 +686,7 @@
 
 ---
 
-## 11) Instructor - Block Submissions List
+## 13) Instructor - Block Submissions List
 
 - **Title**: Learner Submissions for Block
 - **Endpoint**: `GET /tas/api/v1/block/{usage_key}/submissions/`
@@ -569,7 +715,7 @@
 
 ---
 
-## 12) Instructor - Submission Detail
+## 14) Instructor - Submission Detail
 
 - **Title**: Learner Submission Detail
 - **Endpoint**: `GET /tas/api/v1/submissions/{pk}/`
@@ -607,13 +753,14 @@
 
 ---
 
-## 13) Instructor - Block Rubrics
+## 15) Instructor - Block Rubrics
 
 - **Title**: Rubrics by Block
 - **Endpoint**: `GET /tas/api/v1/block/{usage_key}/rubrics/`
 - **Request Type**: `GET`
 - **Payload**: Not required
 - **Response Code**: `200 OK`
+- **Notes**: The `rubrics` array contains the criteria from the `Rubric` record selected by course staff when configuring the block in Studio. It is populated automatically when the block is saved and reflects the state of the chosen rubric at that point in time.
 - **Response Example**:
 
 ```json
@@ -662,7 +809,7 @@
 
 ---
 
-## 14) Instructor - Submit Feedback
+## 16) Instructor - Submit Feedback
 
 - **Title**: Instructor Feedback
 - **Endpoint**: `POST /tas/api/v1/submissions/{pk}/feedback/`
