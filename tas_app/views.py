@@ -15,6 +15,7 @@ from rest_framework import permissions
 from rest_framework.exceptions import NotFound
 
 from .pdf_generator import generate_submission_pdf
+from .tasks import push_grade_to_lms
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +52,77 @@ class CustomizedPageNumberPagination(LazyPageNumberPagination):
     page_size = 10
     page_size_query_param = "page_size"
     max_page_size = 24
+
+
+def _calculate_score(feedback_rubrics, rubric_criteria):
+    """
+    Re-calculate earned marks against the current rubric criteria.
+
+    For each feedback entry the selected_option name is looked up in the
+    current rubric to get the up-to-date mark.  Falls back to the stored
+    mark when the option no longer exists (e.g. rubric was edited after
+    grading).  Returns (earned, max_possible).
+    """
+    criteria_map = {}
+    max_possible = 0
+    for criterion in rubric_criteria or []:
+        options = criterion.get("options", [])
+        if options:
+            # Criteria use "criterion" as the name key (matches the feedback format)
+            crit_name = criterion.get("criterion") or criterion.get("name") or ""
+            if crit_name:
+                criteria_map[crit_name] = {opt.get("name", ""): opt.get("marks", 0) for opt in options}
+            max_possible += max((opt.get("marks", 0) for opt in options), default=0)
+
+    earned = 0
+    for entry in feedback_rubrics or []:
+        option_map = criteria_map.get(entry.get("criterion", ""), {})
+        selected = entry.get("selected_option", "")
+        earned += option_map[selected] if selected in option_map else entry.get("marks", 0)
+
+    return earned, max_possible
+
+
+def _push_submission_grade(submission, feedback_rubrics):
+    """
+    Queue a Celery task to push the grade for a single approved submission.
+
+    Expects submission.template_block and submission.template_block.rubric to
+    be pre-loaded (via select_related) to avoid extra DB queries.
+    """
+    template_block = getattr(submission, "template_block", None)
+    if not template_block:
+        return
+    rubric = getattr(template_block, "rubric", None)
+    if not rubric:
+        return
+
+    earned, max_possible = _calculate_score(feedback_rubrics, rubric.criteria)
+    if max_possible <= 0:
+        return
+
+    push_grade_to_lms.delay(
+        usage_key_str=str(submission.usage_key),
+        course_key_str=str(submission.course_key),
+        student_id=submission.student_id,
+        earned=earned,
+        max_possible=max_possible,
+    )
+
+
+def _requeue_grades_for_rubric(rubric):
+    """
+    Re-queue grade pushes for every approved submission linked to this rubric.
+
+    Called after rubric criteria marks are updated so that all affected
+    student scores are recalculated with the new point values.
+    """
+    approved_feedbacks = InstructorFeedback.objects.filter(
+        status=STATUS_APPROVED,
+        submission__template_block__rubric=rubric,
+    ).select_related("submission__template_block__rubric")
+    for feedback in approved_feedbacks:
+        _push_submission_grade(feedback.submission, feedback.rubrics)
 
 
 class TemplateTypesListView(ListCreateAPIView):
@@ -340,6 +412,8 @@ class RubricsDetailView(APIView):
         serializer = RubricSerializer(rubric, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()
+        if "criteria" in request.data:
+            _requeue_grades_for_rubric(rubric)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
     def delete(self, request, pk):
@@ -612,9 +686,10 @@ class InstructorFeedbackAPIView(APIView):
         Creates or updates InstructorFeedback for the specified Submission.
         Returns appropriate response if submission does not exist.
         """
-        # Validate existence of the referenced Submission
+        # Validate existence of the referenced Submission; load template_block
+        # and rubric so _push_submission_grade can access them without extra queries.
         try:
-            submission = Submission.objects.only("id").get(id=pk)
+            submission = Submission.objects.select_related("template_block__rubric").get(id=pk)
         except Submission.DoesNotExist:
             return Response({"detail": "Submission not found."}, status=status.HTTP_404_NOT_FOUND)
 
@@ -637,6 +712,8 @@ class InstructorFeedbackAPIView(APIView):
         if submission_status in [STATUS_APPROVED, STATUS_REJECTED]:
             submission.status = submission_status
             submission.save()
+            if submission_status == STATUS_APPROVED:
+                _push_submission_grade(submission, feedback.rubrics)
         # Return explicit success response with creation status
         return Response(
             {
