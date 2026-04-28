@@ -546,9 +546,10 @@ class LearnerSubmissionDetailAPIView(APIView):
             "pdf": "https://.../media/submission/123/file.pdf"
         }
         """
-        # Use select_related to optimize query for student (User) object
         try:
-            submission = Submission.objects.select_related("student", "feedback").get(id=pk)
+            submission = Submission.objects.select_related(
+                "student", "feedback", "template_block__template"
+            ).get(id=pk)
         except Submission.DoesNotExist:
             return Response({"detail": "Submission not found"}, status=status.HTTP_404_NOT_FOUND)
 
@@ -591,6 +592,15 @@ class LearnerSubmissionDetailAPIView(APIView):
                 }
             )
 
+        # Build field_id → label map from the linked template so the frontend
+        # can display human-readable labels instead of raw field IDs.
+        template_fields = {}
+        try:
+            for field in submission.template_block.template.fields:
+                template_fields[field["id"]] = field.get("label", field["id"])
+        except Exception:
+            pass
+
         # Prepare response payload
         data = {
             "id": submission.id,
@@ -601,6 +611,7 @@ class LearnerSubmissionDetailAPIView(APIView):
             "status": submission.status,
             "version": submission.version_number,
             "form_data": submission.form_data,
+            "template_fields": template_fields,
             "pdf": pdf_url,
             "feedback": feedback_data,
             "version_history": version_history,
@@ -792,10 +803,19 @@ class StudentSubmissionCreateAPIView(APIView):
                     if submission.status not in (Submission.STATUS_DRAFT,):
                         return submission, False
 
+                    # Detect whether this call carries any real change.
+                    # createOrGetDraft sends status=draft + empty form_data={} — that is
+                    # a pure "fetch existing draft" and must not bump the version.
+                    form_data_changed = form_data is not None and form_data != {}
+                    status_changed = new_status != submission.status
+                    has_changes = form_data_changed or status_changed or bool(pdf_file)
+
+                    if not has_changes:
+                        # Nothing to write — return the existing draft as-is.
+                        return submission, False
+
                     submission.template_block = template_block
-                    # Only overwrite form_data when the caller explicitly sends data.
-                    # None means "get existing draft" — preserve saved answers.
-                    if form_data is not None:
+                    if form_data_changed:
                         submission.form_data = form_data
                     submission.status = new_status
                     submission.version_number += 1
@@ -829,8 +849,13 @@ class StudentSubmissionCreateAPIView(APIView):
                 )
                 if submission.status not in (Submission.STATUS_DRAFT,):
                     return submission, False
+                form_data_changed = form_data is not None and form_data != {}
+                status_changed = new_status != submission.status
+                has_changes = form_data_changed or status_changed or bool(pdf_file)
+                if not has_changes:
+                    return submission, False
                 submission.template_block = template_block
-                if form_data is not None:
+                if form_data_changed:
                     submission.form_data = form_data
                 submission.status = new_status
                 submission.version_number += 1
