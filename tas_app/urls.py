@@ -1,5 +1,6 @@
 from django.urls import path
 from .views import (
+    BlockFeedbackOptionsAPIView,
     InstructorFeedbackAPIView,
     LearnerSubmissionDetailAPIView,
     LearnerSubmissionsAPIView,
@@ -75,6 +76,11 @@ urlpatterns = [
         "api/v1/block/<path:usage_key>/rubrics/",
         RubricsAPIView.as_view(),
         name="block-rubrics",
+    ),
+    path(
+        "api/v1/block/<path:usage_key>/feedback-options/",
+        BlockFeedbackOptionsAPIView.as_view(),
+        name="block-feedback-options",
     ),
     # Instructor: Submit feedback for a specific learner submission (assess + feedback)
     path(

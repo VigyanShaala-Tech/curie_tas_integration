@@ -6,8 +6,9 @@ from opaque_keys.edx.keys import CourseKey, UsageKey
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from tas_app.models import InstructorFeedback, Submission, Template, TemplateBlock, TemplateType
+from tas_app.models import InstructorFeedback, Rubric, Submission, Template, TemplateBlock, TemplateType
 from tas_app.views import (
+    BlockFeedbackOptionsAPIView,
     InstructorFeedbackAPIView,
     LearnerSubmissionDetailAPIView,
     LearnerSubmissionsAPIView,
@@ -385,6 +386,82 @@ class InstructorEndpointsViewTest(TestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertTrue(InstructorFeedback.objects.filter(submission=self.submission).exists())
 
+    def test_feedback_options_get_empty_returns_200(self):
+        """Verify GET feedback-options returns empty categories by default."""
+        self.client.force_authenticate(user=self.admin)
+        response = self.client.get(
+            reverse("tas_app:block-feedback-options", kwargs={"usage_key": str(self.block.usage_key)})
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["categories"], [])
+
+    def test_feedback_options_put_and_get_round_trip(self):
+        """Verify PUT persists predefined feedback options per category."""
+        self.client.force_authenticate(user=self.admin)
+        payload = {
+            "categories": [
+                {
+                    "category_id": "Hypothesis",
+                    "options": [{"id": "fb-1", "label": "Clear hypothesis"}],
+                }
+            ]
+        }
+        put_response = self.client.put(
+            reverse("tas_app:block-feedback-options", kwargs={"usage_key": str(self.block.usage_key)}),
+            payload,
+            format="json",
+        )
+        self.assertEqual(put_response.status_code, status.HTTP_200_OK)
+        get_response = self.client.get(
+            reverse("tas_app:block-feedback-options", kwargs={"usage_key": str(self.block.usage_key)})
+        )
+        self.assertEqual(get_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(get_response.data["categories"], payload["categories"])
+
+    def test_block_rubrics_includes_predefined_feedback(self):
+        """Verify rubrics response embeds predefined_feedback from block config."""
+        rubric = Rubric.objects.create(
+            name="Lab Rubric",
+            criteria=[{"criterion": "Hypothesis", "options": [{"name": "Good", "marks": 5}]}],
+        )
+        self.block.rubric = rubric
+        self.block.feedback_options = [
+            {"category_id": "Hypothesis", "options": [{"id": "fb-1", "label": "Well stated"}]}
+        ]
+        self.block.save()
+        self.client.force_authenticate(user=self.admin)
+        response = self.client.get(
+            reverse("tas_app:block-rubrics", kwargs={"usage_key": str(self.block.usage_key)})
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.data["rubrics"][0]["predefined_feedback"],
+            [{"id": "fb-1", "label": "Well stated"}],
+        )
+
+    def test_submission_feedback_accepts_selected_options(self):
+        """Verify feedback POST stores selected_options on rubric entries."""
+        self.client.force_authenticate(user=self.admin)
+        response = self.client.post(
+            reverse("tas_app:submission-feedback", kwargs={"pk": self.submission.pk}),
+            {
+                "rubrics": [
+                    {
+                        "criterion": "Hypothesis",
+                        "selected_option": "Score: 8",
+                        "marks": 8,
+                        "selected_options": ["fb-1", "fb-2"],
+                    }
+                ],
+                "comment": "Nice work",
+                "status": "approved",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        feedback = InstructorFeedback.objects.get(submission=self.submission)
+        self.assertEqual(feedback.rubrics[0]["selected_options"], ["fb-1", "fb-2"])
+
 
 class URLRoutingTest(TestCase):
     def test_template_types_list_url_resolves_correct_view(self):
@@ -465,3 +542,13 @@ class URLRoutingTest(TestCase):
         """Verify submission feedback URL maps to expected view class."""
         match = resolve(reverse("tas_app:submission-feedback", kwargs={"pk": 1}))
         self.assertEqual(match.func.view_class, InstructorFeedbackAPIView)
+
+    def test_block_feedback_options_url_resolves_correct_view(self):
+        """Verify block feedback-options URL maps to expected view class."""
+        match = resolve(
+            reverse(
+                "tas_app:block-feedback-options",
+                kwargs={"usage_key": "block-v1:edX+DemoX+2026_T1+type@problem+block@z"},
+            )
+        )
+        self.assertEqual(match.func.view_class, BlockFeedbackOptionsAPIView)

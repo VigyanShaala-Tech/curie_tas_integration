@@ -807,6 +807,49 @@
 }
 ```
 
+Each rubric criterion may include an optional `predefined_feedback` array (comment snippets configured per assignment):
+
+```json
+{
+  "criterion": "Ideas",
+  "options": [{ "name": "Very Good", "marks": 5 }],
+  "predefined_feedback": [
+    { "id": "fb-1", "label": "Clear and well-developed ideas" }
+  ]
+}
+```
+
+---
+
+## 15b) Instructor - Block Feedback Options (Admin Config)
+
+- **Title**: Predefined Feedback Options by Block
+- **Endpoints**:
+  - `GET /tas/api/v1/block/{usage_key}/feedback-options/`
+  - `PUT /tas/api/v1/block/{usage_key}/feedback-options/`
+- **Request Type**: `GET` / `PUT`
+- **Notes**: Per-assignment configuration stored on `TemplateBlock`. `category_id` matches the rubric criterion name. Reviewer UI reads options via the rubrics endpoint (`predefined_feedback`); these endpoints are for admin read/write.
+
+**GET Response Example:**
+
+```json
+{
+  "usage_key": "block-v1:Org+Course+Run+type@tas+block@unit1",
+  "categories": [
+    {
+      "category_id": "Ideas",
+      "options": [
+        { "id": "fb-1", "label": "Clear and well-developed ideas" }
+      ]
+    }
+  ]
+}
+```
+
+**PUT Payload:** same `categories` array (full replace).
+
+**Feedback submit** — each rubric entry may optionally include `selected_options: string[]` (IDs from `predefined_feedback`).
+
 ---
 
 ## 16) Instructor - Submit Feedback
@@ -815,6 +858,8 @@
 - **Endpoint**: `POST /tas/api/v1/submissions/{pk}/feedback/`
 - **Request Type**: `POST`
 - **Payload**:
+
+`comment` is optional free-form instructor text. It may be omitted or sent as an empty string. There is no maximum length on the backend (`TextField`); clients should support at least 10,000+ characters without truncation.
 
 To Reject Submission:
 ```json
