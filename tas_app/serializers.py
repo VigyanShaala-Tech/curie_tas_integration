@@ -250,3 +250,30 @@ class InstructorFeedbackUpsertSerializer(serializers.Serializer):
         if not isinstance(value, list):
             raise serializers.ValidationError("rubrics must be a list.")
         return value
+
+
+class FeedbackOptionSerializer(serializers.Serializer):
+    """A single predefined feedback comment option."""
+
+    id = serializers.CharField(max_length=64)
+    label = serializers.CharField(max_length=2000)
+
+
+class CategoryFeedbackConfigSerializer(serializers.Serializer):
+    """Predefined feedback options for one rubric category."""
+
+    category_id = serializers.CharField(max_length=255)
+    options = FeedbackOptionSerializer(many=True)
+
+
+class BlockFeedbackOptionsSerializer(serializers.Serializer):
+    """Payload for reading/writing per-block predefined feedback options."""
+
+    categories = CategoryFeedbackConfigSerializer(many=True)
+
+    def validate_categories(self, value):
+        if value is None:
+            return []
+        if not isinstance(value, list):
+            raise serializers.ValidationError("categories must be a list.")
+        return value

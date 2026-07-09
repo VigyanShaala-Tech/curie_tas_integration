@@ -31,6 +31,7 @@ from .models import (
     STATUS_REJECTED,
 )
 from .serializers import (
+    BlockFeedbackOptionsSerializer,
     InstructorFeedbackUpsertSerializer,
     RubricSerializer,
     TemplateTypeSerializer,
@@ -81,6 +82,32 @@ def _calculate_score(feedback_rubrics, rubric_criteria):
         earned += option_map[selected] if selected in option_map else entry.get("marks", 0)
 
     return earned, max_possible
+
+
+def _feedback_options_by_category(feedback_options):
+    """Map category_id to predefined feedback option lists."""
+    result = {}
+    for entry in feedback_options or []:
+        category_id = entry.get("category_id", "")
+        if category_id:
+            result[category_id] = entry.get("options", [])
+    return result
+
+
+def _rubrics_with_predefined_feedback(criteria, feedback_map):
+    """Attach predefined_feedback to each rubric criterion for reviewer UI."""
+    rubrics = []
+    for criterion in criteria or []:
+        crit_name = criterion.get("criterion") or criterion.get("name") or ""
+        row = dict(criterion)
+        row["predefined_feedback"] = feedback_map.get(crit_name, [])
+        rubrics.append(row)
+    return rubrics
+
+
+def _get_template_block_by_usage_key(usage_key):
+    """Load TemplateBlock by usage_key or raise TemplateBlock.DoesNotExist."""
+    return TemplateBlock.objects.select_related("rubric").get(usage_key=usage_key)
 
 
 def _push_submission_grade(submission, feedback_rubrics):
@@ -646,23 +673,68 @@ class RubricsAPIView(APIView):
         Returns 404 if the block does not exist.
         """
         try:
-            block = (
-                TemplateBlock.objects.select_related("rubric")
-                .only("display_name", "instructions", "rubric")
-                .get(usage_key=usage_key)
-            )
+            block = _get_template_block_by_usage_key(usage_key)
         except TemplateBlock.DoesNotExist:
             return Response(
                 {"detail": "Template block with specified usage_key not found."},
                 status=status.HTTP_404_NOT_FOUND,
             )
+        feedback_map = _feedback_options_by_category(block.feedback_options)
+        criteria = block.rubric.criteria if block.rubric else []
         data = {
             "display_name": block.display_name,
             "instructions": block.instructions,
-            "rubrics": block.rubric.criteria if block.rubric else [],
+            "rubrics": _rubrics_with_predefined_feedback(criteria, feedback_map),
         }
 
         return Response(data, status=status.HTTP_200_OK)
+
+
+class BlockFeedbackOptionsAPIView(APIView):
+    """
+    GET/PUT predefined feedback comment options for a TemplateBlock (per assignment).
+
+    Endpoint: /api/v1/block/<usage_key>/feedback-options/
+  """
+
+    permission_classes = [permissions.IsAdminUser]
+    authentication_classes = [JwtAuthentication, SessionAuthentication]
+
+    def get(self, request, usage_key):
+        try:
+            block = _get_template_block_by_usage_key(usage_key)
+        except TemplateBlock.DoesNotExist:
+            return Response(
+                {"detail": "Template block with specified usage_key not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        return Response(
+            {
+                "usage_key": str(block.usage_key),
+                "categories": block.feedback_options or [],
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    def put(self, request, usage_key):
+        try:
+            block = _get_template_block_by_usage_key(usage_key)
+        except TemplateBlock.DoesNotExist:
+            return Response(
+                {"detail": "Template block with specified usage_key not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        serializer = BlockFeedbackOptionsSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        block.feedback_options = serializer.validated_data["categories"]
+        block.save(update_fields=["feedback_options", "modified"])
+        return Response(
+            {
+                "usage_key": str(block.usage_key),
+                "categories": block.feedback_options,
+            },
+            status=status.HTTP_200_OK,
+        )
 
 
 class InstructorFeedbackAPIView(APIView):

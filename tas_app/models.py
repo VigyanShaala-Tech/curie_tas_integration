@@ -195,6 +195,14 @@ class TemplateBlock(TimeStampedModel):
         db_index=True,
         help_text="Reference to the rubric used in this block.",
     )
+    feedback_options = models.JSONField(
+        blank=True,
+        default=list,
+        help_text=(
+            "Per-category predefined feedback comment options for reviewers. "
+            "Shape: [{category_id, options: [{id, label}]}]."
+        ),
+    )
     sort_order = models.PositiveIntegerField(
         default=0, help_text="Defines the order in which templates are rendered within a unit."
     )
