@@ -855,29 +855,68 @@ class WithdrawFeedbackAPIView(APIView):
     authentication_classes = [JwtAuthentication, SessionAuthentication]
 
     def post(self, request, pk):
+        user_id = getattr(request.user, "id", None)
+        logger.info(
+            "Withdraw feedback requested: submission_id=%s user_id=%s",
+            pk,
+            user_id,
+        )
+
         try:
             submission = Submission.objects.select_related(
                 "feedback", "template_block__rubric"
             ).get(id=pk)
         except Submission.DoesNotExist:
+            logger.warning(
+                "Withdraw feedback 404: submission not found submission_id=%s user_id=%s",
+                pk,
+                user_id,
+            )
             return Response({"detail": "Submission not found."}, status=status.HTTP_404_NOT_FOUND)
 
         try:
             feedback = submission.feedback
         except ObjectDoesNotExist:
+            logger.warning(
+                "Withdraw feedback 404: feedback not found submission_id=%s "
+                "submission_status=%s user_id=%s",
+                pk,
+                submission.status,
+                user_id,
+            )
             return Response({"detail": "Feedback not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        logger.info(
+            "Withdraw feedback state: submission_id=%s user_id=%s "
+            "feedback_status=%s submission_status=%s",
+            pk,
+            user_id,
+            feedback.status,
+            submission.status,
+        )
 
         # Idempotent: already reopened for editing
         if (
             feedback.status == STATUS_PENDING
             and submission.status == Submission.STATUS_SUBMITTED
         ):
+            logger.info(
+                "Withdraw feedback idempotent success: submission_id=%s user_id=%s",
+                pk,
+                user_id,
+            )
             return Response(
                 {"message": "Feedback already withdrawn for editing."},
                 status=status.HTTP_200_OK,
             )
 
         if feedback.status not in (STATUS_APPROVED, STATUS_REJECTED):
+            logger.warning(
+                "Withdraw feedback 400: invalid feedback_status=%s submission_id=%s user_id=%s",
+                feedback.status,
+                pk,
+                user_id,
+            )
             return Response(
                 {"detail": "Only approved or rejected feedback can be withdrawn."},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -903,6 +942,12 @@ class WithdrawFeedbackAPIView(APIView):
                     submission.pk,
                 )
 
+        logger.info(
+            "Withdraw feedback success: submission_id=%s user_id=%s was_approved=%s",
+            pk,
+            user_id,
+            was_approved,
+        )
         return Response(
             {"message": "Feedback withdrawn successfully."},
             status=status.HTTP_200_OK,
