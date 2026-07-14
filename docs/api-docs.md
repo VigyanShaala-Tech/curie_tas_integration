@@ -900,6 +900,30 @@ To Approve Submission:
 
 ---
 
+## 16b) Instructor - Withdraw Feedback
+
+- **Title**: Withdraw / reopen finalized instructor feedback
+- **Endpoint**: `POST /tas/api/v1/submissions/{pk}/feedback/withdraw/`
+- **Request Type**: `POST`
+- **Payload**: none (empty body)
+- **Behavior**:
+  - Only for finalized feedback (`approved` or `rejected`).
+  - Sets `feedback.status` to `pending` and `submission.status` to `submitted`.
+  - Does **not** modify rubrics, comments, or other feedback content.
+  - Does **not** create a feedback version snapshot (snapshots remain on Approve/Reject via `POST .../feedback/`).
+  - Clears LMS grade only if the previous feedback status was `approved`.
+  - Idempotent when already `pending` + `submitted`.
+- **Response Code**: `200 OK`
+- **Response Example**:
+
+```json
+{
+  "message": "Feedback withdrawn successfully."
+}
+```
+
+---
+
 ## Common Error Responses
 
 - `400 Bad Request` - Validation error or invalid operation.

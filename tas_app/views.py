@@ -137,6 +137,33 @@ def _push_submission_grade(submission, feedback_rubrics):
     )
 
 
+def _clear_submission_grade(submission):
+    """
+    Queue a Celery task to clear the LMS grade for a previously approved submission.
+
+    Used only when withdrawing approved feedback so a mistaken approval does not
+    leave a stale grade. Does not modify feedback content fields.
+    """
+    template_block = getattr(submission, "template_block", None)
+    if not template_block:
+        return
+    rubric = getattr(template_block, "rubric", None)
+    if not rubric:
+        return
+
+    _, max_possible = _calculate_score([], rubric.criteria)
+    if max_possible <= 0:
+        return
+
+    push_grade_to_lms.delay(
+        usage_key_str=str(submission.usage_key),
+        course_key_str=str(submission.course_key),
+        student_id=submission.student_id,
+        earned=0,
+        max_possible=max_possible,
+    )
+
+
 def _requeue_grades_for_rubric(rubric):
     """
     Re-queue grade pushes for every approved submission linked to this rubric.
@@ -803,6 +830,81 @@ class InstructorFeedbackAPIView(APIView):
                 "message": "Feedback saved successfully.",
                 "created": created,
             },
+            status=status.HTTP_200_OK,
+        )
+
+
+class WithdrawFeedbackAPIView(APIView):
+    """
+    Reopen a finalized instructor review so it can be edited and resubmitted.
+
+    Isolated from InstructorFeedbackAPIView: does not submit/update feedback
+    content, does not create version snapshots, and only mutates status fields.
+
+    Endpoint: POST /api/v1/submissions/<pk>/feedback/withdraw/
+
+    Allowed mutations:
+      - feedback.status → pending
+      - submission.status → submitted
+      - clear LMS grade if previous feedback status was approved
+
+    Rubrics, comments, and other feedback content are left unchanged for prefill.
+    """
+
+    permission_classes = [permissions.IsAdminUser]
+    authentication_classes = [JwtAuthentication, SessionAuthentication]
+
+    def post(self, request, pk):
+        try:
+            submission = Submission.objects.select_related(
+                "feedback", "template_block__rubric"
+            ).get(id=pk)
+        except Submission.DoesNotExist:
+            return Response({"detail": "Submission not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        try:
+            feedback = submission.feedback
+        except ObjectDoesNotExist:
+            return Response({"detail": "Feedback not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        # Idempotent: already reopened for editing
+        if (
+            feedback.status == STATUS_PENDING
+            and submission.status == Submission.STATUS_SUBMITTED
+        ):
+            return Response(
+                {"message": "Feedback already withdrawn for editing."},
+                status=status.HTTP_200_OK,
+            )
+
+        if feedback.status not in (STATUS_APPROVED, STATUS_REJECTED):
+            return Response(
+                {"detail": "Only approved or rejected feedback can be withdrawn."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        was_approved = feedback.status == STATUS_APPROVED
+
+        with transaction.atomic():
+            # Status fields only — do not touch rubrics, comment, or other content.
+            feedback.status = STATUS_PENDING
+            feedback.save(update_fields=["status"])
+            submission.status = Submission.STATUS_SUBMITTED
+            submission.save(update_fields=["status"])
+
+        # No create_version_snapshot() — history stays on Approve/Reject submit flow.
+        if was_approved:
+            try:
+                _clear_submission_grade(submission)
+            except Exception:  # noqa: BLE001
+                # Reopen must succeed even if grade clear enqueue fails.
+                logger.exception(
+                    "Failed to enqueue LMS grade clear after withdrawing feedback for submission %s",
+                    submission.pk,
+                )
+
+        return Response(
+            {"message": "Feedback withdrawn successfully."},
             status=status.HTTP_200_OK,
         )
 
