@@ -17,6 +17,7 @@ from .views import (
     TemplateTypesListView,
     TemplatesDetailView,
     TemplatesListView,
+    WithdrawFeedbackAPIView,
 )
 
 app_name = "tas_app"
@@ -87,5 +88,11 @@ urlpatterns = [
         "api/v1/submissions/<int:pk>/feedback/",
         InstructorFeedbackAPIView.as_view(),
         name="submission-feedback",
+    ),
+    # Instructor: Withdraw finalized feedback so it can be edited and resubmitted
+    path(
+        "api/v1/submissions/<int:pk>/feedback/withdraw/",
+        WithdrawFeedbackAPIView.as_view(),
+        name="submission-feedback-withdraw",
     ),
 ]
