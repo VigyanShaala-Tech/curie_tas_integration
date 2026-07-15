@@ -28,10 +28,10 @@
                     <div class="assigment-status-message rejected">
                         <p><b>{% trans "Assignment Status" %}:</b> {% trans "Rejected" %}</p>
                         <p>{% trans "This assignment has been rejected. Please revise and submit the assignment again." %}</p>
-                        {% if assigment_feedback and assigment_feedback.comment %}
+                        {% if assigment_feedback and assigment_feedback.comment_html %}
                             <div class="feedback-comment">
                                 <b>{% trans "Instructor Feedback" %}:</b>
-                                <p>{{ assigment_feedback.comment }}</p>
+                                <div class="feedback-comment-body">{{ assigment_feedback.comment_html|safe }}</div>
                             </div>
                         {% endif %}
                     </div>
@@ -49,10 +49,10 @@
                                 <span class="assigment-score-value">{{ assigment_earned_score }} / {{ assigment_max_score }}</span>
                             </div>
                         {% endif %}
-                        {% if assigment_feedback and assigment_feedback.comment %}
+                        {% if assigment_feedback and assigment_feedback.comment_html %}
                             <div class="feedback-comment">
                                 <b>{% trans "Instructor Feedback" %}:</b>
-                                <p>{{ assigment_feedback.comment }}</p>
+                                <div class="feedback-comment-body">{{ assigment_feedback.comment_html|safe }}</div>
                             </div>
                         {% endif %}
                     </div>

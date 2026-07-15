@@ -427,8 +427,13 @@ class InstructorFeedback(TimeStampedModel):
         """
         Persist an immutable snapshot for the current rubrics/comment/status.
         Auto-increments version_number each time it is called.
+        Links the snapshot to the submission version under review when present.
         """
         existing_version = InstructorFeedbackVersion.objects.all().count()
+        submission_version = SubmissionVersion.objects.filter(
+            submission=self.submission,
+            version_number=self.submission.version_number,
+        ).first()
         InstructorFeedbackVersion.objects.create(
             instructor_feedback=self,
             version_number=existing_version + 1,
@@ -436,6 +441,7 @@ class InstructorFeedback(TimeStampedModel):
             rubrics=self.rubrics,
             comment=self.comment,
             status=self.status,
+            submission_version=submission_version,
         )
 
 
@@ -451,6 +457,14 @@ class InstructorFeedbackVersion(TimeStampedModel):
         on_delete=models.CASCADE,
         related_name="tas_instructor_feedback_versions",
         help_text="Parent reference to the editable instructor feedback.",
+    )
+    submission_version = models.ForeignKey(
+        SubmissionVersion,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="feedback_versions",
+        help_text="Submission version this feedback snapshot applies to, when known.",
     )
     version_number = models.PositiveIntegerField(
         help_text="Snapshot's version number (matches value on the InstructorFeedback at save time)."
