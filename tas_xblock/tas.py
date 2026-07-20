@@ -12,6 +12,7 @@ from xblockutils.resources import ResourceLoader
 from django.contrib.auth.models import User
 from lms.djangoapps.courseware.access import has_access
 from tas_app.models import TemplateBlock, Template, TemplateType, Submission, Rubric
+from tas_app.utils.student_feedback import strip_category_headings_from_comment
 
 
 def _(text):
@@ -111,6 +112,7 @@ class TASXBlock(XBlock):
                 feedback = {
                     "status": fb.status,
                     "comment": fb.comment,
+                    "comment_html": strip_category_headings_from_comment(fb.comment),
                     "rubrics": fb.rubrics or [],
                 }
             except Exception:

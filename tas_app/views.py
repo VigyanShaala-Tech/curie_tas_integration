@@ -1120,28 +1120,55 @@ class StudentSubmissionDetailAPIView(APIView):
     def patch(self, request, pk):
         """
         PATCH /student-submission/<pk>/
-        Allows the student to update form_data or PDF if the submission is still in DRAFT status.
-        Increments version and stores a new version snapshot.
-        Returns 409 if already submitted.
+
+        Two modes:
+          1. { "action": "reopen" } — rejected → draft only (no form_data / version changes)
+          2. { "form_data" and/or "pdf" } — save draft content (version bump + snapshot)
         """
         submission = self.get_object(request, pk)
+        serializer = StudentSubmissionPatchSerializer(data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        validated = serializer.validated_data
+
+        # ── Explicit reopen (rejected → draft) ────────────────────────────────
+        if validated.get("action") == "reopen":
+            if submission.status != Submission.STATUS_REJECTED:
+                return Response(
+                    {
+                        "detail": (
+                            "Only rejected submissions can be reopened for editing. "
+                            f"Current status: {submission.status}."
+                        )
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            # Status only — do not touch form_data, pdf, or version history
+            submission.status = Submission.STATUS_DRAFT
+            submission.save()
+
+            try:
+                feedback = InstructorFeedback.objects.get(submission=submission)
+                feedback.status = STATUS_PENDING
+                feedback.save()
+            except InstructorFeedback.DoesNotExist:
+                pass
+
+            out = StudentSubmissionResponseSerializer(submission, context={"request": request})
+            return Response(out.data, status=status.HTTP_200_OK)
+
+        # ── Form / PDF draft save (existing behavior) ─────────────────────────
         if submission.status == Submission.STATUS_SUBMITTED:
             return Response(
                 {"detail": "This submission is already finalized and cannot be changed."},
                 status=status.HTTP_409_CONFLICT,
             )
 
-        # Validate partial update data (form_data and/or pdf)
-        serializer = StudentSubmissionPatchSerializer(data=request.data, partial=True)
-        serializer.is_valid(raise_exception=True)
+        if "form_data" in validated:
+            submission.form_data = validated["form_data"]
+        if "pdf" in validated:
+            submission.pdf = validated["pdf"]
 
-        # Apply updates if provided
-        if "form_data" in serializer.validated_data:
-            submission.form_data = serializer.validated_data["form_data"]
-        if "pdf" in serializer.validated_data:
-            submission.pdf = serializer.validated_data["pdf"]
-
-        # Increment version, save, and snapshot
         submission.version_number += 1
         submission.status = Submission.STATUS_DRAFT
         submission.save()
@@ -1204,8 +1231,8 @@ class StudentSubmissionSubmitAPIView(APIView):
 
 class StudentSubmissionVersionsAPIView(APIView):
     """
-    API View to list all versions (history) of a student's submission.
-    - GET: Returns all version snapshots of the submission in reverse order.
+    API View to list submitted versions (history) of a student's submission.
+    - GET: Returns PDF-backed version snapshots with linked feedback, newest first.
     """
 
     permission_classes = [permissions.IsAuthenticated]
@@ -1214,15 +1241,27 @@ class StudentSubmissionVersionsAPIView(APIView):
     def get(self, request, pk):
         """
         GET /student-submission/<pk>/versions/
-        Retrieves all versioned snapshots for the student's submission, latest first.
+        Retrieves submitted (PDF) version snapshots for the student, latest first.
         """
         try:
             submission = Submission.objects.get(pk=pk, student=request.user)
         except Submission.DoesNotExist:
             raise NotFound("Submission not found.")
 
-        versions_qs = submission.tas_submission_versions.all().order_by("-version_number")
-        serializer = SubmissionVersionSerializer(versions_qs, many=True)
+        versions_qs = (
+            submission.tas_submission_versions.exclude(pdf="")
+            .exclude(pdf=None)
+            .order_by("-version_number")
+            .prefetch_related("feedback_versions")
+        )
+        serializer = SubmissionVersionSerializer(
+            versions_qs,
+            many=True,
+            context={
+                "request": request,
+                "current_version_number": submission.version_number,
+            },
+        )
         return Response(
             {
                 "submission_id": str(submission.id),

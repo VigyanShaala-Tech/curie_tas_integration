@@ -147,12 +147,33 @@ class StudentSubmissionResponseSerializer(serializers.ModelSerializer):
 
 
 class StudentSubmissionPatchSerializer(serializers.Serializer):
+    """
+    PATCH body for student submissions.
+
+    Branches:
+      - { "action": "reopen" } — reopen a rejected submission to draft (no form write)
+      - { "form_data" and/or "pdf" } — save draft content (existing behavior)
+    """
+
+    action = serializers.ChoiceField(choices=["reopen"], required=False)
     form_data = serializers.JSONField(required=False)
     pdf = serializers.FileField(required=False, allow_null=True)
 
     def validate(self, attrs):
-        if not attrs:
-            raise serializers.ValidationError("At least one of form_data or pdf must be provided.")
+        action = attrs.get("action")
+        has_content = "form_data" in attrs or "pdf" in attrs
+
+        if action == "reopen":
+            if has_content:
+                raise serializers.ValidationError(
+                    "Reopen cannot include form_data or pdf. Send only {\"action\": \"reopen\"}."
+                )
+            return attrs
+
+        if not has_content:
+            raise serializers.ValidationError(
+                "Provide form_data and/or pdf, or {\"action\": \"reopen\"}."
+            )
         return attrs
 
 
@@ -173,9 +194,63 @@ class StudentSubmissionSubmitSerializer(serializers.ModelSerializer):
 
 
 class SubmissionVersionSerializer(serializers.Serializer):
+    """
+    Student-facing submitted version history entry.
+
+    Includes linked instructor feedback when a real FK relationship exists.
+    Does not expose rubric scores/marks.
+    """
+
     version_number = serializers.IntegerField()
+    submitted_at = serializers.DateTimeField(source="saved_at")
+    feedback_available = serializers.SerializerMethodField()
+    feedback_unavailable_reason = serializers.SerializerMethodField()
+    feedback_status = serializers.SerializerMethodField()
+    instructor_comment = serializers.SerializerMethodField()
+    pdf_url = serializers.SerializerMethodField()
+    download_url = serializers.SerializerMethodField()
+    # Legacy fields retained for backward compatibility with existing clients.
     form_data = serializers.JSONField()
     saved_at = serializers.DateTimeField()
+
+    def _latest_linked_feedback(self, obj):
+        if hasattr(obj, "_cached_latest_linked_feedback"):
+            return obj._cached_latest_linked_feedback
+        linked = obj.feedback_versions.order_by("-version_number").first()
+        obj._cached_latest_linked_feedback = linked
+        return linked
+
+    def get_feedback_available(self, obj):
+        return self._latest_linked_feedback(obj) is not None
+
+    def get_feedback_unavailable_reason(self, obj):
+        if self._latest_linked_feedback(obj) is not None:
+            return None
+        current_version = self.context.get("current_version_number")
+        if current_version is not None and obj.version_number == current_version:
+            return "pending"
+        return "unlinked_historical"
+
+    def get_feedback_status(self, obj):
+        linked = self._latest_linked_feedback(obj)
+        return linked.status if linked else None
+
+    def get_instructor_comment(self, obj):
+        linked = self._latest_linked_feedback(obj)
+        return linked.comment if linked else ""
+
+    def _absolute_pdf_url(self, obj):
+        if not obj.pdf:
+            return None
+        request = self.context.get("request")
+        pdf_url = obj.pdf.url
+        return request.build_absolute_uri(pdf_url) if request else pdf_url
+
+    def get_pdf_url(self, obj):
+        return self._absolute_pdf_url(obj)
+
+    def get_download_url(self, obj):
+        return self._absolute_pdf_url(obj)
 
 
 class TemplateTypeBasicSerializer(serializers.ModelSerializer):

@@ -7,11 +7,13 @@ from opaque_keys.edx.keys import CourseKey, UsageKey
 
 from tas_app.models import (
     InstructorFeedback,
+    InstructorFeedbackVersion,
     Submission,
     SubmissionVersion,
     Template,
     TemplateBlock,
     TemplateType,
+    STATUS_APPROVED,
     STATUS_PENDING,
 )
 
@@ -225,7 +227,7 @@ class SubmissionVersionModelTest(TestCase):
 class InstructorFeedbackModelTest(TestCase):
     def test_instructor_feedback_str_includes_human_status(self):
         """Verify InstructorFeedback string uses readable status text."""
-        feedback = InstructorFeedbackFactory(status=InstructorFeedback.STATUS_APPROVED)
+        feedback = InstructorFeedbackFactory(status=STATUS_APPROVED)
         self.assertIn("Approved", str(feedback))
 
     def test_instructor_feedback_one_to_one_submission_enforced(self):
@@ -237,3 +239,21 @@ class InstructorFeedbackModelTest(TestCase):
     def test_instructor_feedback_meta_ordering_descending_created(self):
         """Verify InstructorFeedback ordering returns newest first."""
         self.assertEqual(InstructorFeedback._meta.ordering, ["-created"])
+
+    def test_create_version_snapshot_links_submission_version(self):
+        """Verify feedback snapshots link to the matching submission version."""
+        submission = SubmissionFactory(version_number=4)
+        submission_version = SubmissionVersionFactory(submission=submission, version_number=4)
+        feedback = InstructorFeedbackFactory(submission=submission, comment="Linked comment")
+        feedback.create_version_snapshot()
+        snapshot = InstructorFeedbackVersion.objects.get(instructor_feedback=feedback)
+        self.assertEqual(snapshot.submission_version_id, submission_version.id)
+        self.assertEqual(snapshot.comment, "Linked comment")
+
+    def test_create_version_snapshot_allows_null_submission_version(self):
+        """Verify feedback snapshots leave submission_version null when none exists."""
+        submission = SubmissionFactory(version_number=2)
+        feedback = InstructorFeedbackFactory(submission=submission)
+        feedback.create_version_snapshot()
+        snapshot = InstructorFeedbackVersion.objects.get(instructor_feedback=feedback)
+        self.assertIsNone(snapshot.submission_version)
