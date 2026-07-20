@@ -3,6 +3,7 @@ import logging
 from django.core.exceptions import ObjectDoesNotExist
 from django.utils import timezone
 from django.db import IntegrityError, transaction
+from django.db.models import Count, Q
 from django.shortcuts import get_object_or_404
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -43,6 +44,7 @@ from .serializers import (
     SubmissionVersionSerializer,
     TemplateBlockTemplateItemSerializer,
 )
+from .utils.user_metadata import bulk_user_metadata_by_user_ids, metadata_fields_for_user
 
 
 class CustomizedPageNumberPagination(LazyPageNumberPagination):
@@ -538,24 +540,40 @@ class LearnerSubmissionsAPIView(APIView):
         GET /api/v1/block/<usage_key>/submissions/
         Returns a paginated list of submissions for the specified block.
         """
-        # Use select_related to reduce DB queries when accessing related User and feedback
+        # Use select_related to reduce DB queries when accessing related User and feedback.
+        # resubmission_count matches Submission History (PDF-bearing SubmissionVersion rows).
         submissions_qs = (
             Submission.objects.filter(usage_key=usage_key)
             .select_related("student", "feedback")
+            .annotate(
+                resubmission_count=Count(
+                    "tas_submission_versions",
+                    filter=(
+                        Q(tas_submission_versions__pdf__isnull=False)
+                        & ~Q(tas_submission_versions__pdf="")
+                    ),
+                )
+            )
             .order_by("-submitted_at")
         )
 
         # Use custom paginator for paginating results
         paginator = CustomizedPageNumberPagination()
         page = paginator.paginate_queryset(submissions_qs, request)
+        page_items = page if page is not None else list(submissions_qs)
+
+        # One bulk metadata lookup for the page (graceful if table missing locally)
+        student_ids = [sub.student_id for sub in page_items]
+        meta_by_user = bulk_user_metadata_by_user_ids(student_ids)
 
         # Build the summary response for each submission in the page
         results = []
-        for sub in page:
+        for sub in page_items:
             try:
                 feedback_status = sub.feedback.status
             except ObjectDoesNotExist:
                 feedback_status = None
+            meta = metadata_fields_for_user(meta_by_user, sub.student_id)
             results.append(
                 {
                     "id": sub.id,
@@ -564,6 +582,11 @@ class LearnerSubmissionsAPIView(APIView):
                     "status": sub.status,
                     "version_number": sub.version_number,
                     "feedback_status": feedback_status,
+                    "email": getattr(sub.student, "email", None) or "",
+                    "college_name": meta.get("college_name", ""),
+                    "university_name": meta.get("university_name", ""),
+                    "partner_organization": meta.get("partner_organization", ""),
+                    "resubmission_count": getattr(sub, "resubmission_count", 0) or 0,
                 }
             )
 
