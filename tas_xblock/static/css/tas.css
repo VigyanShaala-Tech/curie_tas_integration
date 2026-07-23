@@ -88,3 +88,19 @@
     margin: 4px 0 0;
     white-space: pre-wrap;
 }
+.tas_block .feedback-comment-body {
+    margin-top: 6px;
+    font-size: 14px;
+    line-height: 1.45;
+}
+.tas_block .feedback-comment-body p {
+    margin: 0.35rem 0;
+}
+.tas_block .feedback-comment-body ul,
+.tas_block .feedback-comment-body ol {
+    margin: 0.35rem 0;
+    padding-left: 1.25rem;
+}
+.tas_block .feedback-comment-body a {
+    text-decoration: underline;
+}

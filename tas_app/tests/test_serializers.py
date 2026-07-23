@@ -5,11 +5,22 @@ from django.test import TestCase, override_settings
 from opaque_keys.edx.keys import CourseKey, UsageKey
 from rest_framework.test import APIRequestFactory
 
-from tas_app.models import Submission, Template, TemplateBlock, TemplateType
+from tas_app.models import (
+    InstructorFeedback,
+    InstructorFeedbackVersion,
+    STATUS_APPROVED,
+    Submission,
+    SubmissionVersion,
+    Template,
+    TemplateBlock,
+    TemplateType,
+)
 from tas_app.serializers import (
     StudentSubmissionCreateSerializer,
+    StudentSubmissionPatchSerializer,
     StudentSubmissionResponseSerializer,
     StudentSubmissionSubmitSerializer,
+    SubmissionVersionSerializer,
     TemplateBasicSerializer,
     TemplateSerializer,
     TemplateTypeSerializer,
@@ -194,6 +205,30 @@ class StudentSubmissionCreateSerializerTest(TestCase):
         self.assertFalse(serializer.is_valid())
 
 
+class StudentSubmissionPatchSerializerTest(TestCase):
+    def test_reopen_action_is_valid_alone(self):
+        """Verify reopen action validates without form_data."""
+        serializer = StudentSubmissionPatchSerializer(data={"action": "reopen"})
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+
+    def test_reopen_rejects_form_data(self):
+        """Verify reopen cannot be combined with form_data."""
+        serializer = StudentSubmissionPatchSerializer(
+            data={"action": "reopen", "form_data": {"a": "1"}}
+        )
+        self.assertFalse(serializer.is_valid())
+
+    def test_empty_body_is_invalid(self):
+        """Verify empty PATCH body is rejected."""
+        serializer = StudentSubmissionPatchSerializer(data={})
+        self.assertFalse(serializer.is_valid())
+
+    def test_form_data_alone_is_valid(self):
+        """Verify form_data PATCH still validates."""
+        serializer = StudentSubmissionPatchSerializer(data={"form_data": {"a": "1"}})
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+
+
 @override_settings(MEDIA_URL="/media/")
 class StudentSubmissionResponseSerializerTest(TestCase):
     def setUp(self):
@@ -221,6 +256,78 @@ class StudentSubmissionSubmitSerializerTest(TestCase):
         submission = SubmissionFactory(pdf=None)
         serializer = StudentSubmissionSubmitSerializer(submission)
         self.assertIsNone(serializer.data["pdf_url"])
+
+
+@override_settings(MEDIA_URL="/media/")
+class SubmissionVersionSerializerTest(TestCase):
+    def setUp(self):
+        self.request_factory = APIRequestFactory()
+
+    def _make_version(self, version_number=2, with_pdf=True):
+        submission = SubmissionFactory(version_number=version_number)
+        version = SubmissionVersion.objects.create(
+            submission=submission,
+            version_number=version_number,
+            form_data={"answer": "v"},
+        )
+        if with_pdf:
+            version.pdf = SimpleUploadedFile("v.pdf", b"pdf-bytes", content_type="application/pdf")
+            version.save()
+        return submission, version
+
+    def test_linked_feedback_marks_available(self):
+        """Verify linked feedback sets feedback_available and clears unavailable reason."""
+        submission, version = self._make_version(version_number=3)
+        feedback = InstructorFeedback.objects.create(
+            submission=submission,
+            comment="Nice work",
+            status=STATUS_APPROVED,
+            rubrics=[],
+        )
+        InstructorFeedbackVersion.objects.create(
+            instructor_feedback=feedback,
+            submission_version=version,
+            version_number=1,
+            comment="Nice work",
+            status=STATUS_APPROVED,
+            rubrics=[],
+        )
+        request = self.request_factory.get("/")
+        data = SubmissionVersionSerializer(
+            version,
+            context={"request": request, "current_version_number": submission.version_number},
+        ).data
+        self.assertTrue(data["feedback_available"])
+        self.assertIsNone(data["feedback_unavailable_reason"])
+        self.assertEqual(data["feedback_status"], STATUS_APPROVED)
+        self.assertEqual(data["instructor_comment"], "Nice work")
+        self.assertIn("http://testserver/media/", data["pdf_url"])
+        self.assertEqual(data["pdf_url"], data["download_url"])
+        self.assertEqual(data["submitted_at"], data["saved_at"])
+
+    def test_current_version_without_link_is_pending(self):
+        """Verify current unlinked version reports pending."""
+        submission, version = self._make_version(version_number=5)
+        data = SubmissionVersionSerializer(
+            version,
+            context={"current_version_number": submission.version_number},
+        ).data
+        self.assertFalse(data["feedback_available"])
+        self.assertEqual(data["feedback_unavailable_reason"], "pending")
+        self.assertIsNone(data["feedback_status"])
+        self.assertEqual(data["instructor_comment"], "")
+
+    def test_historical_unlinked_version_reason(self):
+        """Verify older unlinked versions report unlinked_historical."""
+        submission, version = self._make_version(version_number=1)
+        submission.version_number = 4
+        submission.save(update_fields=["version_number"])
+        data = SubmissionVersionSerializer(
+            version,
+            context={"current_version_number": submission.version_number},
+        ).data
+        self.assertFalse(data["feedback_available"])
+        self.assertEqual(data["feedback_unavailable_reason"], "unlinked_historical")
 
 
 @override_settings(MEDIA_URL="/media/")
