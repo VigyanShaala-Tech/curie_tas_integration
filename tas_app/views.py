@@ -3,7 +3,6 @@ import logging
 from django.core.exceptions import ObjectDoesNotExist
 from django.utils import timezone
 from django.db import IntegrityError, transaction
-from django.db.models import Count, Q
 from django.shortcuts import get_object_or_404
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -44,7 +43,16 @@ from .serializers import (
     SubmissionVersionSerializer,
     TemplateBlockTemplateItemSerializer,
 )
-from .utils.user_metadata import bulk_user_metadata_by_user_ids, metadata_fields_for_user
+from .utils.cohort_form_metadata import (
+    bulk_cohort_form_metadata_by_user_ids,
+    distinct_cohort_form_values,
+    metadata_fields_for_user,
+)
+from .utils.admin_submission_filters import (
+    apply_submission_list_filters,
+    apply_submission_list_ordering,
+    build_base_submission_list_queryset,
+)
 
 
 class CustomizedPageNumberPagination(LazyPageNumberPagination):
@@ -525,6 +533,27 @@ class TemplateBlockDetailView(APIView):
         return Response(data, status=status.HTTP_200_OK)
 
 
+class BlockSubmissionFilterOptionsAPIView(APIView):
+    """
+    Distinct cohort metadata values for admin submission list filter dropdowns.
+    """
+
+    permission_classes = [permissions.IsAdminUser]
+    authentication_classes = [JwtAuthentication, SessionAuthentication]
+
+    def get(self, request, usage_key):
+        """
+        GET /api/v1/block/<usage_key>/submissions/filter-options/
+        """
+        student_ids = (
+            Submission.objects.filter(usage_key=usage_key)
+            .values_list("student_id", flat=True)
+            .distinct()
+        )
+        options = distinct_cohort_form_values(student_ids)
+        return Response(options, status=status.HTTP_200_OK)
+
+
 class LearnerSubmissionsAPIView(APIView):
     """
     API view for admins to list learner submissions for a given block (usage_key).
@@ -542,20 +571,9 @@ class LearnerSubmissionsAPIView(APIView):
         """
         # Use select_related to reduce DB queries when accessing related User and feedback.
         # resubmission_count matches Submission History (PDF-bearing SubmissionVersion rows).
-        submissions_qs = (
-            Submission.objects.filter(usage_key=usage_key)
-            .select_related("student", "feedback")
-            .annotate(
-                resubmission_count=Count(
-                    "tas_submission_versions",
-                    filter=(
-                        Q(tas_submission_versions__pdf__isnull=False)
-                        & ~Q(tas_submission_versions__pdf="")
-                    ),
-                )
-            )
-            .order_by("-submitted_at")
-        )
+        submissions_qs = build_base_submission_list_queryset(usage_key)
+        submissions_qs = apply_submission_list_filters(submissions_qs, request.query_params)
+        submissions_qs = apply_submission_list_ordering(submissions_qs, request.query_params)
 
         # Use custom paginator for paginating results
         paginator = CustomizedPageNumberPagination()
@@ -564,7 +582,7 @@ class LearnerSubmissionsAPIView(APIView):
 
         # One bulk metadata lookup for the page (graceful if table missing locally)
         student_ids = [sub.student_id for sub in page_items]
-        meta_by_user = bulk_user_metadata_by_user_ids(student_ids)
+        meta_by_user = bulk_cohort_form_metadata_by_user_ids(student_ids)
 
         # Build the summary response for each submission in the page
         results = []
