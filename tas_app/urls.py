@@ -1,6 +1,7 @@
 from django.urls import path
 from .views import (
     BlockFeedbackOptionsAPIView,
+    BlockSubmissionFilterOptionsAPIView,
     InstructorFeedbackAPIView,
     LearnerSubmissionDetailAPIView,
     LearnerSubmissionsAPIView,
@@ -61,6 +62,11 @@ urlpatterns = [
         name="student-submission-versions",
     ),
     # Instructor: List ALL submissions for a given usage_key (block)
+    path(
+        "api/v1/block/<path:usage_key>/submissions/filter-options/",
+        BlockSubmissionFilterOptionsAPIView.as_view(),
+        name="block-submissions-filter-options",
+    ),
     path(
         "api/v1/block/<path:usage_key>/submissions/",
         LearnerSubmissionsAPIView.as_view(),
