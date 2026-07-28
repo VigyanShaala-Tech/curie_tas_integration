@@ -12,8 +12,8 @@
                     <a href="{{ assigment_submission_url }}" id="submit_assignment">{% trans "Submit Assignment" %}</a>
                 {% elif assigment_status == "submitted" %}
                     <div class="assigment-status-message submitted">
-                        <p><b>{% trans "Assignment Status" %}:</b> {% trans "Submitted" %}</p>
-                        <p>{% trans "This assignment has been submitted and is waiting for grading." %}</p>
+                        <p><b>{% trans "Assignment Status" %}:</b> {% trans "Under Review" %}</p>
+                        <p>{% trans "This assignment is Under Review and is waiting for grading." %}</p>
                     </div>
                 {% elif assigment_status == "draft" %}
                     <div class="assigment-status-message draft">
@@ -26,8 +26,8 @@
                     <a href="{{ assigment_submission_url }}" id="submit_assignment">{% trans "Submit Assignment" %}</a>
                 {% elif assigment_status == "rejected" %}
                     <div class="assigment-status-message rejected">
-                        <p><b>{% trans "Assignment Status" %}:</b> {% trans "Rejected" %}</p>
-                        <p>{% trans "This assignment has been rejected. Please revise and submit the assignment again." %}</p>
+                        <p><b>{% trans "Assignment Status" %}:</b> {% trans "Reattempt" %}</p>
+                        <p>{% trans "Your assignment needs to be revised and resubmitted. Please review the feedback provided, make the required improvements, and submit your updated assignment." %}</p>
                         {% if assigment_feedback and assigment_feedback.comment_html %}
                             <div class="feedback-comment">
                                 <b>{% trans "Instructor Feedback" %}:</b>
@@ -41,8 +41,8 @@
                     <a href="{{ assigment_submission_url }}" id="submit_assignment">{% trans "Submit Assignment" %}</a>
                 {% elif assigment_status == "approved" %}
                     <div class="assigment-status-message approved">
-                        <p><b>{% trans "Assignment Status" %}:</b> {% trans "Approved" %}</p>
-                        <p>{% trans "This assignment has been approved. You can view the assignment below." %}</p>
+                        <p><b>{% trans "Assignment Status" %}:</b> {% trans "Accepted" %}</p>
+                        <p>{% trans "This assignment has been accepted. You can view the assignment below." %}</p>
                         {% if assigment_earned_score is not None and assigment_max_score %}
                             <div class="assigment-score">
                                 <span class="assigment-score-label">{% trans "Your Score" %}:</span>
