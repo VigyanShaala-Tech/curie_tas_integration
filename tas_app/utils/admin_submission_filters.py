@@ -15,6 +15,20 @@ SORT_FIELD_MAP = {
     "resubmission_count": "resubmission_count",
 }
 
+STATUS_FILTER_VALUES = {
+    Submission.STATUS_DRAFT,
+    Submission.STATUS_SUBMITTED,
+    Submission.STATUS_APPROVED,
+    Submission.STATUS_REJECTED,
+}
+
+# Tab counts for the instructor list (draft omitted from UI tabs).
+STATUS_COUNT_KEYS = (
+    Submission.STATUS_SUBMITTED,
+    Submission.STATUS_APPROVED,
+    Submission.STATUS_REJECTED,
+)
+
 
 def build_base_submission_list_queryset(usage_key: str):
     """Submission queryset for the admin list — one row per submission."""
@@ -44,12 +58,15 @@ def _query_param(params, key: str) -> str:
     return str(value).strip()
 
 
-def apply_submission_list_filters(queryset, query_params):
+def apply_submission_list_filters(queryset, query_params, *, include_status=True):
     """
     Server-side filters for the admin submission list.
 
     Cohort filters use Exists against cohort_management_form_cohortformsubmission
     joined on Submission.student_id = user_id.
+
+    Set include_status=False when computing status_counts so counts reflect
+    college/email/date filters only (before the status tab filter).
     """
     email = _query_param(query_params, "email")
     if email:
@@ -80,7 +97,31 @@ def apply_submission_list_filters(queryset, query_params):
     if submitted_before:
         queryset = queryset.filter(submitted_at__date__lte=submitted_before)
 
+    if include_status:
+        queryset = apply_submission_status_filter(queryset, query_params)
+
     return queryset
+
+
+def apply_submission_status_filter(queryset, query_params):
+    """Filter by submission.status when status is a known enum value."""
+    status_value = _query_param(query_params, "status")
+    if status_value in STATUS_FILTER_VALUES:
+        return queryset.filter(status=status_value)
+    return queryset
+
+
+def build_submission_status_counts(queryset):
+    """
+    Per-status counts for tab badges.
+
+    Computed on the queryset after non-status filters (and before status filter /
+    pagination). Missing keys default to 0.
+    """
+    return {
+        key: queryset.filter(status=key).count()
+        for key in STATUS_COUNT_KEYS
+    }
 
 
 def apply_submission_list_ordering(queryset, query_params):

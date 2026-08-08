@@ -7,6 +7,8 @@ from django.test import SimpleTestCase
 from tas_app.utils.admin_submission_filters import (
     apply_submission_list_filters,
     apply_submission_list_ordering,
+    apply_submission_status_filter,
+    build_submission_status_counts,
 )
 from tas_app.utils.cohort_form_metadata import (
     EMPTY_COHORT_FORM_FIELDS,
@@ -109,6 +111,90 @@ class ApplySubmissionListFiltersTest(SimpleTestCase):
         queryset.filter.assert_called_once_with(submitted_at__date__gte="2026-01-01")
         after_filtered.filter.assert_called_once_with(submitted_at__date__lte="2026-12-31")
         self.assertIs(result, before_filtered)
+
+    def test_status_filter_submitted(self):
+        queryset = MagicMock()
+        filtered = MagicMock()
+        queryset.filter.return_value = filtered
+
+        result = apply_submission_list_filters(
+            queryset, {"status": ["submitted"]},
+        )
+
+        queryset.filter.assert_called_once_with(status="submitted")
+        self.assertIs(result, filtered)
+
+    def test_status_filter_approved(self):
+        queryset = MagicMock()
+        filtered = MagicMock()
+        queryset.filter.return_value = filtered
+
+        result = apply_submission_status_filter(queryset, {"status": ["approved"]})
+
+        queryset.filter.assert_called_once_with(status="approved")
+        self.assertIs(result, filtered)
+
+    def test_status_filter_rejected(self):
+        queryset = MagicMock()
+        filtered = MagicMock()
+        queryset.filter.return_value = filtered
+
+        result = apply_submission_status_filter(queryset, {"status": ["rejected"]})
+
+        queryset.filter.assert_called_once_with(status="rejected")
+        self.assertIs(result, filtered)
+
+    def test_no_status_leaves_queryset_unfiltered(self):
+        queryset = MagicMock()
+
+        result = apply_submission_list_filters(queryset, {})
+
+        queryset.filter.assert_not_called()
+        self.assertIs(result, queryset)
+
+    def test_status_filter_skipped_when_include_status_false(self):
+        queryset = MagicMock()
+
+        result = apply_submission_list_filters(
+            queryset, {"status": ["submitted"]}, include_status=False,
+        )
+
+        queryset.filter.assert_not_called()
+        self.assertIs(result, queryset)
+
+    def test_invalid_status_ignored(self):
+        queryset = MagicMock()
+
+        result = apply_submission_status_filter(queryset, {"status": ["not-a-status"]})
+
+        queryset.filter.assert_not_called()
+        self.assertIs(result, queryset)
+
+    def test_empty_status_ignored(self):
+        queryset = MagicMock()
+
+        result = apply_submission_status_filter(queryset, {"status": [""]})
+
+        queryset.filter.assert_not_called()
+        self.assertIs(result, queryset)
+
+
+class BuildSubmissionStatusCountsTest(SimpleTestCase):
+    def test_returns_zero_defaults_and_per_status_counts(self):
+        """Counts are computed on the pre-status queryset (caller passes include_status=False)."""
+        queryset = MagicMock()
+        queryset.filter.return_value.count.side_effect = [40, 35, 25]
+
+        result = build_submission_status_counts(queryset)
+
+        self.assertEqual(
+            result,
+            {"submitted": 40, "approved": 35, "rejected": 25},
+        )
+        self.assertEqual(queryset.filter.call_count, 3)
+        queryset.filter.assert_any_call(status="submitted")
+        queryset.filter.assert_any_call(status="approved")
+        queryset.filter.assert_any_call(status="rejected")
 
 
 class ApplySubmissionListOrderingTest(SimpleTestCase):

@@ -51,7 +51,9 @@ from .utils.cohort_form_metadata import (
 from .utils.admin_submission_filters import (
     apply_submission_list_filters,
     apply_submission_list_ordering,
+    apply_submission_status_filter,
     build_base_submission_list_queryset,
+    build_submission_status_counts,
 )
 
 
@@ -571,8 +573,13 @@ class LearnerSubmissionsAPIView(APIView):
         """
         # Use select_related to reduce DB queries when accessing related User and feedback.
         # resubmission_count matches Submission History (PDF-bearing SubmissionVersion rows).
+        # Pipeline: non-status filters → status_counts → status filter → order → paginate.
         submissions_qs = build_base_submission_list_queryset(usage_key)
-        submissions_qs = apply_submission_list_filters(submissions_qs, request.query_params)
+        submissions_qs = apply_submission_list_filters(
+            submissions_qs, request.query_params, include_status=False,
+        )
+        status_counts = build_submission_status_counts(submissions_qs)
+        submissions_qs = apply_submission_status_filter(submissions_qs, request.query_params)
         submissions_qs = apply_submission_list_ordering(submissions_qs, request.query_params)
 
         # Use custom paginator for paginating results
@@ -608,8 +615,9 @@ class LearnerSubmissionsAPIView(APIView):
                 }
             )
 
-        # Return a paginated response
-        return paginator.get_paginated_response(results)
+        response = paginator.get_paginated_response(results)
+        response.data["status_counts"] = status_counts
+        return response
 
 
 class LearnerSubmissionDetailAPIView(APIView):
