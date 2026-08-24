@@ -9,7 +9,6 @@ from version import __version__
 # allow setup.py to be run from any path
 os.chdir(os.path.normpath(os.path.join(os.path.abspath(__file__), os.pardir)))
 
-
 def load_requirements(*requirements_paths):
     """
     Load all requirements from the specified requirements files.
@@ -22,7 +21,6 @@ def load_requirements(*requirements_paths):
             line.split("#")[0].strip() for line in open(path).readlines() if is_requirement(line.strip())
         )
     return list(requirements)
-
 
 def is_requirement(line):
     """
@@ -38,7 +36,6 @@ def is_requirement(line):
         or line.startswith("-e")
         or line.startswith("git+")
     )
-
 
 README = open(os.path.join(os.path.dirname(__file__), "README.md")).read()
 CHANGELOG = open(os.path.join(os.path.dirname(__file__), "CHANGELOG.rst")).read()
@@ -63,6 +60,10 @@ setup(
     # XBlock static assets live under tas_xblock/static/; globs like "*.html" only match
     # the package root, so nested paths were omitted from wheels/sdists and broke production.
     package_data={
+        "tas_app": [
+            "fonts/*.ttf",
+            "fonts/*.md",
+        ],
         "tas_xblock": [
             "static/html/*.html",
             "static/css/*.css",
