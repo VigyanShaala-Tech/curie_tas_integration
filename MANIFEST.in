@@ -1,3 +1,4 @@
 # Ensure non-Python files are present in sdists (used with include_package_data).
 recursive-include tas_xblock/static *
 graft tas_xblock/translations
+graft tas_app/fonts
