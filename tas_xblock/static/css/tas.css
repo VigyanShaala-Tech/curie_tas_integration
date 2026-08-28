@@ -21,6 +21,7 @@
 }
 .tas_block .instructions-text {
     font-size: 16px;
+    white-space: pre-wrap;
 }
 .tas_block #submit_grade {
     color: #fff !important;
