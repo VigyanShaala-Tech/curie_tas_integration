@@ -1,0 +1,57 @@
+# GitHub Actions Workflow for Deploying Open edX Backend changes to VigyanShaala Production EC2
+# This workflow can be triggered manually from the 'Actions' tab via workflow_dispatch.
+# The script checks out the repository, sets up SSH, verifies the host key, and deploys Open edX on the remote EC2 instance.
+
+name: Deploy Open edX Backend changes to VigyanShaala Production EC2
+
+on:
+  # Allows manual triggering from the Actions tab
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    # This job will run only when triggered manually via workflow_dispatch
+    runs-on: ubuntu-latest
+    concurrency:
+      group: production-deploy
+      cancel-in-progress: true
+
+    steps:
+      - name: 📦 Checkout repository
+        uses: actions/checkout@v4
+
+      - name: 🔐 Set up SSH agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.ILP_SSH_PRIVATE_KEY }}
+        # Adds the SSH private key stored in repository secrets to the agent
+
+      - name: 📩 Add EC2 host key to known_hosts
+        run: |
+          # Ensure the .ssh directory exists
+          mkdir -p ~/.ssh
+          # Fetch remote host key to prevent MITM attacks
+          echo "Scanning and adding EC2 host key to known_hosts..."
+          ssh-keyscan -H "${{ secrets.ILP_IP_ADDRESS }}" >> ~/.ssh/known_hosts
+
+      - name: 🚀 Deploying Open edX to Production EC2 Instance
+        run: |
+          echo "Starting deployment to Production EC2 instance: ${{ secrets.ILP_IP_ADDRESS }}"
+          ssh "${{ secrets.SSH_USERNAME }}@${{ secrets.ILP_IP_ADDRESS }}" "bash -se" << 'EOF'
+            set -euo pipefail
+
+            echo "🔹 Activating Python virtual environment for Tutor"
+            # Activate the virtual environment where Tutor is installed
+            source ~/tutor-env/bin/activate
+
+            echo "🔹 Building Open edX Docker images with custom platform repo"
+            tutor images build openedx \
+              --build-arg EDX_PLATFORM_REPOSITORY=https://github.com/VigyanShaala-Tech/openedx-platform.git \
+              --build-arg EDX_PLATFORM_VERSION=vigyanshaala/ulmo.1 \
+              --no-cache
+
+            echo "🔹 Starting Open edX platform using Tutor"
+            tutor local start -d
+
+            echo "✅ Deployment completed successfully on Production EC2 instance!"
+          EOF
