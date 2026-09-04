@@ -1353,3 +1353,43 @@ class StudentSubmissionPdfAPIView(APIView):
             },
             status=status.HTTP_202_ACCEPTED,
         )
+
+
+class StudentSubmissionPreviewPdfAPIView(APIView):
+    """
+    POST /student-submission/<pk>/preview-pdf/
+    Build a downloadable preview PDF. Does not submit.
+    """
+
+    permission_classes = [permissions.IsAuthenticated]
+    authentication_classes = [JwtAuthentication, SessionAuthentication]
+
+    def post(self, request, pk):
+        try:
+            submission = Submission.objects.get(pk=pk, student=request.user)
+        except Submission.DoesNotExist:
+            raise NotFound("Submission not found.")
+
+        form_data = request.data.get("form_data")
+        if isinstance(form_data, dict):
+            submission.form_data = form_data
+            submission.save(update_fields=["form_data", "modified"])
+
+        try:
+            generate_submission_pdf(submission, dest_field="preview_pdf")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Preview PDF failed for submission %s: %s", submission.pk, exc)
+            return Response(
+                {"detail": "Could not generate PDF."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        submission.refresh_from_db()
+        if not submission.preview_pdf:
+            return Response(
+                {"detail": "Could not generate PDF."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        preview_pdf_url = request.build_absolute_uri(submission.preview_pdf.url)
+        return Response({"preview_pdf_url": preview_pdf_url}, status=status.HTTP_200_OK)
