@@ -627,6 +627,35 @@
 
 ---
 
+## 10b) Student Submission - Preview PDF
+
+- **Title**: Generate Save-as-PDF preview (does not submit)
+- **Endpoint**: `POST /tas/api/v1/student-submission/{pk}/preview-pdf/`
+- **Request Type**: `POST`
+- **Auth**: JWT / session (owning student only)
+- **Payload** (optional):
+
+```json
+{
+  "form_data": {
+    "field_id": "current answer text"
+  }
+}
+```
+
+When `form_data` is sent it is stored on the draft only (`form_data` + `modified`). Status, `version_number`, version snapshots, and the official `pdf` field are not changed.
+
+- **Response Code**: `200 OK`
+- **Response Example**:
+
+```json
+{
+  "preview_pdf_url": "https://example.com/media/tas/submissions/previews/preview_100.pdf"
+}
+```
+
+---
+
 ## 11) Student Submission - PDF
 
 - **Title**: Student Submission PDF

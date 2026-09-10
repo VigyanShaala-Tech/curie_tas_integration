@@ -1,4 +1,11 @@
+.tas_block {
+    /* Keep XBlock clear of LMS due-date / sequence header above it */
+    margin-top: 12px;
+    clear: both;
+}
+
 .tas_block #submit_assignment {
+    display: inline-block;
     color: #fff !important;
     background-color: #69AB4A;
     border-color: #69AB4A;
@@ -8,10 +15,18 @@
     font-size: 18px;
     border-radius: 6px;
     text-align: center;
+    margin-top: 8px;
 }
 .tas_block #submit_assignment:hover,
 .tas_block #submit_assignment:focus {
     text-decoration: none !important;
+}
+.tas_block #submit_assignment.disabled {
+    background-color: #a9a9a9;
+    border-color: #a9a9a9;
+    cursor: not-allowed;
+    pointer-events: none;
+    opacity: 0.7;
 }
 .tas_block .display-name {
     margin-top: 0px;
@@ -24,6 +39,8 @@
     white-space: pre-wrap;
 }
 .tas_block #submit_grade {
+    /* inline-block so padding does not overlap LMS due-date text above */
+    display: inline-block;
     color: #fff !important;
     background-color: #69AB4A;
     border-color: #69AB4A;
@@ -33,6 +50,7 @@
     font-size: 18px;
     border-radius: 6px;
     text-align: center;
+    margin-top: 8px;
 }
 .tas_block #submit_grade:hover,
 .tas_block #submit_grade:focus {
@@ -56,6 +74,10 @@
 
 .tas_block .assigment-status-message.approved{
     background: #d1f4d1;
+}
+
+.tas_block .assigment-status-message.past-due{
+    background: #f4d1d1;
 }
 
 .tas_block .assigment-score {

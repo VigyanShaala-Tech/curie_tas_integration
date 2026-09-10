@@ -291,6 +291,12 @@ class Submission(TimeStampedModel):
     pdf = models.FileField(
         upload_to="tas/submissions/pdfs/", null=True, blank=True, help_text="Path to the generated PDF, if any."
     )
+    preview_pdf = models.FileField(
+        upload_to="tas/submissions/previews/",
+        null=True,
+        blank=True,
+        help_text="Student Save-as-PDF preview. Not the official submitted PDF.",
+    )
 
     class Meta:
         ordering = ["-created"]

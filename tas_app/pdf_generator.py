@@ -214,14 +214,17 @@ def _draw_text_in_box(c, text, x, y, width, height, font_size, font_name):
 
     c.restoreState()
 
-def generate_submission_pdf(submission):
+def generate_submission_pdf(submission, dest_field="pdf"):
     """
-    Generates a PDF for the given Submission, saves it to submission.pdf,
-    and returns the saved file name.
+    Generates a PDF for the given Submission and saves it onto dest_field
+    ('pdf' = official submit artifact, 'preview_pdf' = Save as PDF preview).
 
     The PDF page size matches the template's natural image dimensions (pixels → points).
     Field values are placed using the same percentage coordinates as the frontend.
     """
+    if dest_field not in ("pdf", "preview_pdf"):
+        raise ValueError("dest_field must be 'pdf' or 'preview_pdf'")
+
     template = submission.template_block.template
     form_data = submission.form_data or {}
     fields = template.fields or []
@@ -296,6 +299,10 @@ def generate_submission_pdf(submission):
     c.save()
     buffer.seek(0)
 
-    file_name = f"submission_{submission.id}_v{submission.version_number}.pdf"
-    submission.pdf.save(file_name, ContentFile(buffer.read()), save=True)
+    if dest_field == "preview_pdf":
+        file_name = f"preview_{submission.id}.pdf"
+    else:
+        file_name = f"submission_{submission.id}_v{submission.version_number}.pdf"
+
+    getattr(submission, dest_field).save(file_name, ContentFile(buffer.read()), save=True)
     return file_name

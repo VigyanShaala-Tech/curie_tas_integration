@@ -1,6 +1,8 @@
 """TO-DO: Write a description of what this XBlock is."""
 
 import os
+from datetime import datetime
+
 import pkg_resources
 from django.template import Context
 from django.conf import settings
@@ -121,6 +123,25 @@ class TASXBlock(XBlock):
             return "not_submitted", None, None
         return submission.status, assigment_pdf_url, feedback
 
+    def is_past_due(self):
+        """
+        Is it now past this assignment's due date (including grace period)?
+
+        `due` and `graceperiod` are not fields declared on this XBlock -- they're
+        standard Open edX fields (`xmodule.modulestore.inheritance.InheritanceMixin`)
+        that every block picks up from the LMS/CMS runtime and that cascade down from
+        an ancestor (e.g. the parent subsection) unless overridden lower in the tree.
+        Reading `self.due` here therefore already reflects the effective, fully
+        resolved due date -- including any per-student extension -- exactly as it does
+        for the built-in problem block (see `xmodule/capa_block.py::close_date`).
+        """
+        due_date = self.due
+        if due_date is None:
+            return False
+        if self.graceperiod:
+            due_date = due_date + self.graceperiod
+        return datetime.now(due_date.tzinfo) > due_date
+
     def max_score(self):
         """
         Return the maximum achievable score across all rubric criteria.
@@ -153,6 +174,7 @@ class TASXBlock(XBlock):
         assigment_submission_url = f"{TAS_MICROFRONTEND_URL}/submission/{self.location}"
         assigment_review_url = f"{TAS_MICROFRONTEND_URL}/instructor/grade-submissions/{self.location}"
         assigment_status, assigment_pdf_url, assigment_feedback = self.get_assigment_status()
+        assigment_due_passed = self.is_past_due()
 
         # Fallback grade publish: the grade is normally pushed immediately when
         # the instructor approves a submission (via the push_grade_to_lms Celery
@@ -185,6 +207,7 @@ class TASXBlock(XBlock):
             "assigment_submission_url": assigment_submission_url,
             "assigment_review_url": assigment_review_url,
             "assigment_status": assigment_status,
+            "assigment_due_passed": assigment_due_passed,
             "assigment_pdf_url": assigment_pdf_url,
             "assigment_feedback": assigment_feedback,
             "assigment_earned_score": assigment_earned_score,

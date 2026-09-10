@@ -209,3 +209,22 @@ class PdfGeneratorLayoutTest(TestCase):
         pdf_bytes = submission.pdf.read()
         self.assertTrue(pdf_bytes.startswith(b"%PDF"))
         self.assertIn(b"Liberation", pdf_bytes)
+
+    def test_generate_submission_pdf_preview_dest_does_not_write_official_pdf(self):
+        """Verify dest_field=preview_pdf writes preview_pdf only."""
+        submission = _make_submission(
+            fields=[{"id": "answer", "label": "Answer", "fontSize": 14}],
+            field_positions={"answer": {"x": 10, "y": 10, "width": 40, "height": 20}},
+            form_data={"answer": "Preview only"},
+            image_width=800,
+            image_height=1000,
+        )
+        submission.status = Submission.STATUS_DRAFT
+        submission.save()
+        file_name = generate_submission_pdf(submission, dest_field="preview_pdf")
+        submission.refresh_from_db()
+        self.assertIn(f"preview_{submission.id}", file_name)
+        self.assertTrue(submission.preview_pdf)
+        self.assertFalse(submission.pdf)
+        pdf_bytes = submission.preview_pdf.read()
+        self.assertTrue(pdf_bytes.startswith(b"%PDF"))

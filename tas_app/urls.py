@@ -11,6 +11,7 @@ from .views import (
     StudentSubmissionCreateAPIView,
     StudentSubmissionDetailAPIView,
     StudentSubmissionPdfAPIView,
+    StudentSubmissionPreviewPdfAPIView,
     StudentSubmissionSubmitAPIView,
     StudentSubmissionVersionsAPIView,
     TemplateBlockDetailView,
@@ -50,6 +51,11 @@ urlpatterns = [
         "api/v1/student-submission/<int:pk>/submit/",
         StudentSubmissionSubmitAPIView.as_view(),
         name="student-submission-submit",
+    ),
+    path(
+        "api/v1/student-submission/<int:pk>/preview-pdf/",
+        StudentSubmissionPreviewPdfAPIView.as_view(),
+        name="student-submission-preview-pdf",
     ),
     path(
         "api/v1/student-submission/<int:pk>/pdf/",
