@@ -9,7 +9,14 @@
                     <div class="instructions">
                         <p class="instructions-text">{{ instructions }}</p>
                     </div>
-                    <a href="{{ assigment_submission_url }}" id="submit_assignment">{% trans "Submit Assignment" %}</a>
+                    {% if assigment_due_passed %}
+                        <div class="assigment-status-message past-due">
+                            <p>{% trans "The due date for this assignment has passed. You can no longer submit it." %}</p>
+                        </div>
+                        <span id="submit_assignment" class="disabled" aria-disabled="true">{% trans "Submit Assignment" %}</span>
+                    {% else %}
+                        <a href="{{ assigment_submission_url }}" id="submit_assignment">{% trans "Submit Assignment" %}</a>
+                    {% endif %}
                 {% elif assigment_status == "submitted" %}
                     <div class="assigment-status-message submitted">
                         <p><b>{% trans "Assignment Status" %}:</b> {% trans "Under Review" %}</p>
@@ -23,7 +30,14 @@
                     <div class="instructions">
                         <p class="instructions-text">{{ instructions }}</p>
                     </div>
-                    <a href="{{ assigment_submission_url }}" id="submit_assignment">{% trans "Submit Assignment" %}</a>
+                    {% if assigment_due_passed %}
+                        <div class="assigment-status-message past-due">
+                            <p>{% trans "The due date for this assignment has passed. You can no longer submit it." %}</p>
+                        </div>
+                        <span id="submit_assignment" class="disabled" aria-disabled="true">{% trans "Submit Assignment" %}</span>
+                    {% else %}
+                        <a href="{{ assigment_submission_url }}" id="submit_assignment">{% trans "Submit Assignment" %}</a>
+                    {% endif %}
                 {% elif assigment_status == "rejected" %}
                     <div class="assigment-status-message rejected">
                         <p><b>{% trans "Assignment Status" %}:</b> {% trans "Reattempt" %}</p>
@@ -38,7 +52,14 @@
                     <div class="instructions">
                         <p class="instructions-text">{{ instructions }}</p>
                     </div>
-                    <a href="{{ assigment_submission_url }}" id="submit_assignment">{% trans "Submit Assignment" %}</a>
+                    {% if assigment_due_passed %}
+                        <div class="assigment-status-message past-due">
+                            <p>{% trans "The due date for this assignment has passed. You can no longer submit it." %}</p>
+                        </div>
+                        <span id="submit_assignment" class="disabled" aria-disabled="true">{% trans "Submit Assignment" %}</span>
+                    {% else %}
+                        <a href="{{ assigment_submission_url }}" id="submit_assignment">{% trans "Submit Assignment" %}</a>
+                    {% endif %}
                 {% elif assigment_status == "approved" %}
                     <div class="assigment-status-message approved">
                         <p><b>{% trans "Assignment Status" %}:</b> {% trans "Accepted" %}</p>

@@ -21,6 +21,13 @@
 .tas_block #submit_assignment:focus {
     text-decoration: none !important;
 }
+.tas_block #submit_assignment.disabled {
+    background-color: #a9a9a9;
+    border-color: #a9a9a9;
+    cursor: not-allowed;
+    pointer-events: none;
+    opacity: 0.7;
+}
 .tas_block .display-name {
     margin-top: 0px;
 }
@@ -67,6 +74,10 @@
 
 .tas_block .assigment-status-message.approved{
     background: #d1f4d1;
+}
+
+.tas_block .assigment-status-message.past-due{
+    background: #f4d1d1;
 }
 
 .tas_block .assigment-score {
