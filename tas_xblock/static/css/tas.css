@@ -1,4 +1,11 @@
+.tas_block {
+    /* Keep XBlock clear of LMS due-date / sequence header above it */
+    margin-top: 12px;
+    clear: both;
+}
+
 .tas_block #submit_assignment {
+    display: inline-block;
     color: #fff !important;
     background-color: #69AB4A;
     border-color: #69AB4A;
@@ -8,6 +15,7 @@
     font-size: 18px;
     border-radius: 6px;
     text-align: center;
+    margin-top: 8px;
 }
 .tas_block #submit_assignment:hover,
 .tas_block #submit_assignment:focus {
@@ -24,6 +32,8 @@
     white-space: pre-wrap;
 }
 .tas_block #submit_grade {
+    /* inline-block so padding does not overlap LMS due-date text above */
+    display: inline-block;
     color: #fff !important;
     background-color: #69AB4A;
     border-color: #69AB4A;
@@ -33,6 +43,7 @@
     font-size: 18px;
     border-radius: 6px;
     text-align: center;
+    margin-top: 8px;
 }
 .tas_block #submit_grade:hover,
 .tas_block #submit_grade:focus {
