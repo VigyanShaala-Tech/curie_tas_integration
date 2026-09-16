@@ -23,3 +23,4 @@ django-js-asset # required by django-ckeditor (handles JS/CSS for the editor)
 pillow # required by django-ckeditor for image uploads/processing in editor
 django-parler # required for multi-language support in templates (TranslatableModel + TranslatedFields)
 user-agents==2.2.0
+requests # direct HTTP client for the CURIE trigger; do not rely on an Open edX transitive dependency

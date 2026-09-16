@@ -1,7 +1,20 @@
-from django.db import models
+import uuid
+
+from django.db import models, transaction
+from django.db.models import Max
 from django.contrib.auth.models import User
 from model_utils.models import TimeStampedModel
 from opaque_keys.edx.django.models import CourseKeyField, UsageKeyField
+
+from tas_app.curie.constants import (
+    SOURCE_CURIE,
+    SOURCE_HUMAN,
+    STATUS_FAILED as CURIE_STATUS_FAILED,
+    STATUS_PENDING_EVALUATION,
+    STATUS_READY,
+    VERDICT_ACCEPTED,
+    VERDICT_REJECTED,
+)
 
 
 STATUS_PENDING = "pending"
@@ -202,6 +215,10 @@ class TemplateBlock(TimeStampedModel):
             "Per-category predefined feedback comment options for reviewers. "
             "Shape: [{category_id, options: [{id, label}]}]."
         ),
+    )
+    curie_enabled = models.BooleanField(
+        default=False,
+        help_text="When true and CURIE_ENABLED is on, this assignment is eligible for CURIE review.",
     )
     sort_order = models.PositiveIntegerField(
         default=0, help_text="Defines the order in which templates are rendered within a unit."
@@ -415,6 +432,19 @@ class InstructorFeedback(TimeStampedModel):
         help_text="Current feedback status: pending, approved, or rejected.",
         db_index=True,
     )
+    SOURCE_HUMAN = SOURCE_HUMAN
+    SOURCE_CURIE = SOURCE_CURIE
+    SOURCE_CHOICES = [
+        (SOURCE_HUMAN, "Human"),
+        (SOURCE_CURIE, "CURIE"),
+    ]
+    source = models.CharField(
+        max_length=16,
+        choices=SOURCE_CHOICES,
+        default=SOURCE_HUMAN,
+        db_index=True,
+        help_text="Who currently owns this compatibility projection: a human grader or CURIE.",
+    )
 
     class Meta:
         verbose_name = "Instructor Feedback"
@@ -432,23 +462,29 @@ class InstructorFeedback(TimeStampedModel):
     def create_version_snapshot(self):
         """
         Persist an immutable snapshot for the current rubrics/comment/status.
-        Auto-increments version_number each time it is called.
-        Links the snapshot to the submission version under review when present.
+
+        Version numbers are scoped to this feedback row and allocated under a
+        row lock so concurrent human and CURIE writers cannot collide.
         """
-        existing_version = InstructorFeedbackVersion.objects.all().count()
-        submission_version = SubmissionVersion.objects.filter(
-            submission=self.submission,
-            version_number=self.submission.version_number,
-        ).first()
-        InstructorFeedbackVersion.objects.create(
-            instructor_feedback=self,
-            version_number=existing_version + 1,
-            instructor=self.instructor,
-            rubrics=self.rubrics,
-            comment=self.comment,
-            status=self.status,
-            submission_version=submission_version,
-        )
+        with transaction.atomic():
+            locked = InstructorFeedback.objects.select_for_update().get(pk=self.pk)
+            current_max = InstructorFeedbackVersion.objects.filter(
+                instructor_feedback=locked
+            ).aggregate(max_version=Max("version_number"))["max_version"]
+            next_version = (current_max or 0) + 1
+            submission_version = SubmissionVersion.objects.filter(
+                submission=locked.submission,
+                version_number=locked.submission.version_number,
+            ).first()
+            InstructorFeedbackVersion.objects.create(
+                instructor_feedback=locked,
+                version_number=next_version,
+                instructor=locked.instructor,
+                rubrics=locked.rubrics,
+                comment=locked.comment,
+                status=locked.status,
+                submission_version=submission_version,
+            )
 
 
 class InstructorFeedbackVersion(TimeStampedModel):
@@ -516,3 +552,87 @@ class InstructorFeedbackVersion(TimeStampedModel):
             else "N/A"
         )
         return f"{instructor} - v{self.version_number}"
+
+
+class CurieReview(TimeStampedModel):
+    """Authoritative CURIE output for one submitted attempt."""
+
+    STATUS_PENDING_EVALUATION = STATUS_PENDING_EVALUATION
+    STATUS_READY = STATUS_READY
+    STATUS_FAILED = CURIE_STATUS_FAILED
+    STATUS_CHOICES = [
+        (STATUS_PENDING_EVALUATION, "Pending evaluation"),
+        (STATUS_READY, "Ready"),
+        (CURIE_STATUS_FAILED, "Failed"),
+    ]
+    VERDICT_ACCEPTED = VERDICT_ACCEPTED
+    VERDICT_REJECTED = VERDICT_REJECTED
+    VERDICT_CHOICES = [
+        (VERDICT_ACCEPTED, "Accepted"),
+        (VERDICT_REJECTED, "Rejected"),
+    ]
+
+    submission = models.ForeignKey(
+        Submission,
+        on_delete=models.CASCADE,
+        related_name="curie_reviews",
+        help_text="Submission this review belongs to. Identity flows through this relation.",
+    )
+    submission_version_number = models.PositiveIntegerField(
+        help_text="Submission.version_number at submit time. Not a student-facing attempt ordinal.",
+    )
+    trigger_id = models.UUIDField(
+        default=uuid.uuid4,
+        unique=True,
+        editable=False,
+        help_text="Idempotency key sent on trigger and echoed on callback.",
+    )
+    status = models.CharField(
+        max_length=32,
+        choices=STATUS_CHOICES,
+        default=STATUS_PENDING_EVALUATION,
+        db_index=True,
+    )
+    verdict = models.CharField(
+        max_length=16,
+        choices=VERDICT_CHOICES,
+        null=True,
+        blank=True,
+        help_text="TAS-computed accept/reject. Null until a success callback is applied.",
+    )
+    gate_criterion_scores = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="Overall SWOT Coherence & Alignment scores: [{criterion, score, max_score}].",
+    )
+    field_feedback = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="Per-field CURIE comments and criterion scores. Empty on gate failure.",
+    )
+    overall_feedback = models.TextField(blank=True, default="")
+    error_detail = models.TextField(
+        blank=True,
+        default="",
+        help_text="Integration error detail. Set only when status is failed.",
+    )
+    requested_at = models.DateTimeField(auto_now_add=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    trigger_payload = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Canonical TAS→CURIE trigger body frozen at submit. Retries must reuse this object.",
+    )
+
+    class Meta:
+        verbose_name = "CURIE Review"
+        verbose_name_plural = "CURIE Reviews"
+        ordering = ["-requested_at"]
+        unique_together = [("submission", "submission_version_number")]
+        indexes = [
+            models.Index(fields=["submission", "status"]),
+            models.Index(fields=["status", "requested_at"]),
+        ]
+
+    def __str__(self):
+        return f"{self.submission_id} v{self.submission_version_number} ({self.status})"

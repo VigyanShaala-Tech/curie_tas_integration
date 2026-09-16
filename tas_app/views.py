@@ -3,7 +3,10 @@ import logging
 from django.core.exceptions import ObjectDoesNotExist
 from django.utils import timezone
 from django.db import IntegrityError, transaction
+from django.db.models import OuterRef, Prefetch, Subquery
 from django.shortcuts import get_object_or_404
+from django.utils.decorators import method_decorator
+from django.views.decorators.csrf import csrf_exempt
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from lms.djangoapps.course_api.views import LazyPageNumberPagination
@@ -26,6 +29,8 @@ from .models import (
     Rubric,
     Submission,
     InstructorFeedback,
+    InstructorFeedbackVersion,
+    CurieReview,
     STATUS_PENDING,
     STATUS_APPROVED,
     STATUS_REJECTED,
@@ -581,6 +586,14 @@ class LearnerSubmissionsAPIView(APIView):
         status_counts = build_submission_status_counts(submissions_qs)
         submissions_qs = apply_submission_status_filter(submissions_qs, request.query_params)
         submissions_qs = apply_submission_list_ordering(submissions_qs, request.query_params)
+        submissions_qs = submissions_qs.annotate(
+            curie_review_status=Subquery(
+                CurieReview.objects.filter(
+                    submission_id=OuterRef("pk"),
+                    submission_version_number=OuterRef("version_number"),
+                ).values("status")[:1]
+            )
+        )
 
         # Use custom paginator for paginating results
         paginator = CustomizedPageNumberPagination()
@@ -599,6 +612,9 @@ class LearnerSubmissionsAPIView(APIView):
             except ObjectDoesNotExist:
                 feedback_status = None
             meta = metadata_fields_for_user(meta_by_user, sub.student_id)
+            from tas_app.curie.reads import instructor_queue_curie_fields
+
+            curie_fields = instructor_queue_curie_fields(sub)
             results.append(
                 {
                     "id": sub.id,
@@ -612,6 +628,9 @@ class LearnerSubmissionsAPIView(APIView):
                     "university_name": meta.get("university_name", ""),
                     "partner_organization": meta.get("partner_organization", ""),
                     "resubmission_count": getattr(sub, "resubmission_count", 0) or 0,
+                    "curie_review_status": curie_fields["curie_review_status"],
+                    "feedback_source": curie_fields["feedback_source"],
+                    "instructor_form_locked": curie_fields["instructor_form_locked"],
                 }
             )
 
@@ -650,11 +669,19 @@ class LearnerSubmissionDetailAPIView(APIView):
         }
         """
         try:
-            submission = Submission.objects.select_related(
-                "student", "feedback", "template_block__template"
-            ).get(id=pk)
+            submission = (
+                Submission.objects.select_related(
+                    "student", "feedback", "template_block__template"
+                )
+                .prefetch_related("curie_reviews")
+                .get(id=pk)
+            )
         except Submission.DoesNotExist:
             return Response({"detail": "Submission not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        from tas_app.curie.reads import resolve_review_for_read, staff_review_payload
+
+        current_review = resolve_review_for_read(submission)
 
         # Build absolute PDF URL if a file exists, else None
         pdf_url = request.build_absolute_uri(submission.pdf.url) if submission.pdf else None
@@ -672,6 +699,7 @@ class LearnerSubmissionDetailAPIView(APIView):
                 "status": fb.status,
                 "comment": fb.comment,
                 "rubrics": fb.rubrics,
+                "source": fb.source,
                 "versions": versions,
             }
         except ObjectDoesNotExist:
@@ -718,6 +746,7 @@ class LearnerSubmissionDetailAPIView(APIView):
             "pdf": pdf_url,
             "feedback": feedback_data,
             "version_history": version_history,
+            "curie_review": staff_review_payload(current_review) if current_review else None,
         }
 
         return Response(data, status=status.HTTP_200_OK)
@@ -845,35 +874,43 @@ class InstructorFeedbackAPIView(APIView):
         Creates or updates InstructorFeedback for the specified Submission.
         Returns appropriate response if submission does not exist.
         """
-        # Validate existence of the referenced Submission; load template_block
-        # and rubric so _push_submission_grade can access them without extra queries.
-        try:
-            submission = Submission.objects.select_related("template_block__rubric").get(id=pk)
-        except Submission.DoesNotExist:
-            return Response({"detail": "Submission not found."}, status=status.HTTP_404_NOT_FOUND)
-
         serializer = InstructorFeedbackUpsertSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         validated_data = serializer.validated_data
-
         submission_status = validated_data.get("status", STATUS_PENDING)
-        # Use update_or_create for atomic create or update logic
-        feedback, created = InstructorFeedback.objects.update_or_create(
-            submission=submission,
-            defaults={
-                "instructor": request.user,
-                "rubrics": validated_data.get("rubrics", []),
-                "comment": validated_data.get("comment", ""),
-                "status": submission_status,
-            },
-        )
-        feedback.create_version_snapshot()
-        if submission_status in [STATUS_APPROVED, STATUS_REJECTED]:
-            submission.status = submission_status
-            submission.save()
-            if submission_status == STATUS_APPROVED:
-                _push_submission_grade(submission, feedback.rubrics)
-        # Return explicit success response with creation status
+
+        from tas_app.curie.policy import CuriePolicyError, assert_instructor_form_unlocked
+
+        try:
+            with transaction.atomic():
+                submission = (
+                    Submission.objects.select_related("template_block__rubric", "feedback")
+                    .prefetch_related("curie_reviews")
+                    .select_for_update()
+                    .get(id=pk)
+                )
+                assert_instructor_form_unlocked(submission)
+                feedback, created = InstructorFeedback.objects.update_or_create(
+                    submission=submission,
+                    defaults={
+                        "instructor": request.user,
+                        "source": InstructorFeedback.SOURCE_HUMAN,
+                        "rubrics": validated_data.get("rubrics", []),
+                        "comment": validated_data.get("comment", ""),
+                        "status": submission_status,
+                    },
+                )
+                feedback.create_version_snapshot()
+                if submission_status in [STATUS_APPROVED, STATUS_REJECTED]:
+                    submission.status = submission_status
+                    submission.save()
+                    if submission_status == STATUS_APPROVED:
+                        _push_submission_grade(submission, feedback.rubrics)
+        except Submission.DoesNotExist:
+            return Response({"detail": "Submission not found."}, status=status.HTTP_404_NOT_FOUND)
+        except CuriePolicyError as exc:
+            return Response({"detail": exc.detail}, status=exc.status_code)
+
         return Response(
             {
                 "message": "Feedback saved successfully.",
@@ -934,6 +971,13 @@ class WithdrawFeedbackAPIView(APIView):
                 user_id,
             )
             return Response({"detail": "Feedback not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        from tas_app.curie.policy import CuriePolicyError, assert_curie_feedback_withdrawable
+
+        try:
+            assert_curie_feedback_withdrawable(submission)
+        except CuriePolicyError as exc:
+            return Response({"detail": exc.detail}, status=exc.status_code)
 
         logger.info(
             "Withdraw feedback state: submission_id=%s user_id=%s "
@@ -1034,6 +1078,13 @@ class StudentSubmissionCreateAPIView(APIView):
         form_data = serializer.validated_data["form_data"]
         new_status = serializer.validated_data["status"]
         pdf_file = serializer.validated_data.get("pdf")
+
+        from tas_app.curie.policy import CuriePolicyError, assert_create_status_allowed
+
+        try:
+            assert_create_status_allowed(template_block, new_status)
+        except CuriePolicyError as exc:
+            return Response({"detail": exc.detail}, status=exc.status_code)
 
         submission, created = self._create_or_update_submission(
             request_user=request.user,
@@ -1153,7 +1204,11 @@ class StudentSubmissionDetailAPIView(APIView):
         Raises 404 if submission does not exist or does not belong to the user.
         """
         try:
-            return Submission.objects.get(pk=pk, student=request.user)
+            return (
+                Submission.objects.prefetch_related("curie_reviews")
+                .select_related("feedback", "template_block__template__template_type")
+                .get(pk=pk, student=request.user)
+            )
         except Submission.DoesNotExist:
             raise NotFound("Submission not found.")
 
@@ -1178,9 +1233,17 @@ class StudentSubmissionDetailAPIView(APIView):
         serializer = StudentSubmissionPatchSerializer(data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         validated = serializer.validated_data
+        is_reopen = validated.get("action") == "reopen"
+
+        from tas_app.curie.policy import CuriePolicyError, assert_student_patch_allowed
+
+        try:
+            assert_student_patch_allowed(submission, is_reopen=is_reopen)
+        except CuriePolicyError as exc:
+            return Response({"detail": exc.detail}, status=exc.status_code)
 
         # ── Explicit reopen (rejected → draft) ────────────────────────────────
-        if validated.get("action") == "reopen":
+        if is_reopen:
             if submission.status != Submission.STATUS_REJECTED:
                 return Response(
                     {
@@ -1236,8 +1299,13 @@ class StudentSubmissionDetailAPIView(APIView):
 
 class StudentSubmissionSubmitAPIView(APIView):
     """
-    API View to submit (finalize) a draft submission.
-    - POST: Moves a DRAFT submission to SUBMITTED status, increments version, records submitted_at timestamp.
+    Finalize a student submission.
+
+    When CURIE is eligible, POST may carry authoritative ``form_data``. The
+    submission row is locked while eligibility, source state, attempt cap,
+    version allocation, snapshot/PDF, and pending CurieReview creation run.
+    The CURIE trigger is enqueued only after commit. When CURIE is off or
+    the block is ineligible, the legacy submit path is preserved.
     """
 
     permission_classes = [permissions.IsAuthenticated]
@@ -1246,33 +1314,23 @@ class StudentSubmissionSubmitAPIView(APIView):
     def post(self, request, pk):
         """
         POST /student-submission/<pk>/submit/
-        Finalizes the student's submission if currently in draft.
-        Returns 409 if already submitted.
         """
+        from tas_app.curie.submit import CurieSubmitError, submit_student_submission
+
+        form_data = request.data.get("form_data") if "form_data" in request.data else None
         try:
-            submission = Submission.objects.get(pk=pk, student=request.user)
+            submission = submit_student_submission(
+                pk=pk,
+                student=request.user,
+                form_data=form_data,
+                request=request,
+            )
         except Submission.DoesNotExist:
             raise NotFound("Submission not found.")
-
-        if submission.status == Submission.STATUS_SUBMITTED:
-            return Response(
-                {"detail": "This submission is already submitted."},
-                status=status.HTTP_409_CONFLICT,
-            )
-
-        # Finalize submission
-        submission.status = Submission.STATUS_SUBMITTED
-        submission.version_number += 1
-        submission.submitted_at = timezone.now()
-        submission.save()
-
-        # Generate PDF before snapshot so pdf is captured in version history
-        try:
-            generate_submission_pdf(submission)
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("PDF generation failed for submission %s: %s", submission.pk, exc)
-
-        submission.create_version_snapshot(include_pdf=True)
+        except CurieSubmitError as exc:
+            payload = {"detail": exc.detail}
+            payload.update(exc.extra)
+            return Response(payload, status=exc.status_code)
 
         serializer = StudentSubmissionSubmitSerializer(submission, context={"request": request})
         return Response(serializer.data, status=status.HTTP_200_OK)
@@ -1293,22 +1351,35 @@ class StudentSubmissionVersionsAPIView(APIView):
         Retrieves submitted (PDF) version snapshots for the student, latest first.
         """
         try:
-            submission = Submission.objects.get(pk=pk, student=request.user)
+            submission = Submission.objects.prefetch_related("curie_reviews").get(
+                pk=pk, student=request.user
+            )
         except Submission.DoesNotExist:
             raise NotFound("Submission not found.")
 
-        versions_qs = (
+        from tas_app.curie.reads import attempt_numbers_for_versions, history_curie_summaries
+
+        versions = list(
             submission.tas_submission_versions.exclude(pdf="")
             .exclude(pdf=None)
             .order_by("-version_number")
-            .prefetch_related("feedback_versions")
+            .prefetch_related(
+                Prefetch(
+                    "feedback_versions",
+                    queryset=InstructorFeedbackVersion.objects.order_by("-version_number"),
+                )
+            )
         )
+        summaries = history_curie_summaries(submission)
+        attempt_by_version = attempt_numbers_for_versions([item.version_number for item in versions])
         serializer = SubmissionVersionSerializer(
-            versions_qs,
+            versions,
             many=True,
             context={
                 "request": request,
                 "current_version_number": submission.version_number,
+                "curie_summaries": summaries,
+                "attempt_by_version": attempt_by_version,
             },
         )
         return Response(
@@ -1393,3 +1464,51 @@ class StudentSubmissionPreviewPdfAPIView(APIView):
 
         preview_pdf_url = request.build_absolute_uri(submission.preview_pdf.url)
         return Response({"preview_pdf_url": preview_pdf_url}, status=status.HTTP_200_OK)
+
+
+@method_decorator(csrf_exempt, name="dispatch")
+class CurieReviewCallbackAPIView(APIView):
+    """
+    CURIE → TAS callback. Authenticated by shared secret, not learner/instructor JWT.
+    CSRF is exempt because the caller is the CURIE service, not a browser session.
+    """
+
+    authentication_classes = []
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request, trigger_id):
+        from tas_app.curie.callback import (
+            OUTCOME_HTTP_STATUS,
+            apply_callback,
+            header_secret_matches,
+            should_push_grade,
+        )
+        from tas_app.curie.validation import CallbackValidationError
+
+        if not header_secret_matches(request):
+            return Response({"detail": "Invalid shared secret."}, status=status.HTTP_401_UNAUTHORIZED)
+
+        try:
+            review = CurieReview.objects.select_related(
+                "submission__student",
+                "submission__template_block__template__template_type",
+                "submission__template_block__rubric",
+            ).get(trigger_id=trigger_id)
+        except CurieReview.DoesNotExist:
+            return Response({"detail": "Unknown trigger_id."}, status=status.HTTP_404_NOT_FOUND)
+
+        def after_success(applied_review):
+            if not should_push_grade(applied_review):
+                return
+            submission = applied_review.submission
+            try:
+                rubrics = submission.feedback.rubrics
+            except InstructorFeedback.DoesNotExist:
+                return
+            _push_submission_grade(submission, rubrics)
+
+        try:
+            outcome = apply_callback(review, request.data, after_success=after_success)
+        except CallbackValidationError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({"status": outcome}, status=OUTCOME_HTTP_STATUS.get(outcome, 200))

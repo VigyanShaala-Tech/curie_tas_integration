@@ -2,6 +2,7 @@ from django.urls import path
 from .views import (
     BlockFeedbackOptionsAPIView,
     BlockSubmissionFilterOptionsAPIView,
+    CurieReviewCallbackAPIView,
     InstructorFeedbackAPIView,
     LearnerSubmissionDetailAPIView,
     LearnerSubmissionsAPIView,
@@ -21,6 +22,7 @@ from .views import (
     TemplatesListView,
     WithdrawFeedbackAPIView,
 )
+from tas_app.curie.api import AdminCurieReviewAPIView, StudentCurieReviewAPIView
 
 app_name = "tas_app"
 
@@ -67,6 +69,11 @@ urlpatterns = [
         StudentSubmissionVersionsAPIView.as_view(),
         name="student-submission-versions",
     ),
+    path(
+        "api/v1/student-submission/<int:pk>/curie-review/",
+        StudentCurieReviewAPIView.as_view(),
+        name="student-curie-review",
+    ),
     # Instructor: List ALL submissions for a given usage_key (block)
     path(
         "api/v1/block/<path:usage_key>/submissions/filter-options/",
@@ -97,6 +104,11 @@ urlpatterns = [
     ),
     # Instructor: Submit feedback for a specific learner submission (assess + feedback)
     path(
+        "api/v1/submissions/<int:pk>/curie-review/",
+        AdminCurieReviewAPIView.as_view(),
+        name="admin-curie-review",
+    ),
+    path(
         "api/v1/submissions/<int:pk>/feedback/",
         InstructorFeedbackAPIView.as_view(),
         name="submission-feedback",
@@ -106,5 +118,10 @@ urlpatterns = [
         "api/v1/submissions/<int:pk>/feedback/withdraw/",
         WithdrawFeedbackAPIView.as_view(),
         name="submission-feedback-withdraw",
+    ),
+    path(
+        "api/v1/curie/reviews/<uuid:trigger_id>/callback/",
+        CurieReviewCallbackAPIView.as_view(),
+        name="curie-review-callback",
     ),
 ]

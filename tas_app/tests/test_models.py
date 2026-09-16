@@ -6,6 +6,7 @@ from django.test import TestCase
 from opaque_keys.edx.keys import CourseKey, UsageKey
 
 from tas_app.models import (
+    CurieReview,
     InstructorFeedback,
     InstructorFeedbackVersion,
     Submission,
@@ -60,11 +61,12 @@ class TemplateBlockFactory(factory.django.DjangoModelFactory):
         model = TemplateBlock
 
     template = factory.SubFactory(TemplateFactory)
-    usage_key = factory.LazyFunction(lambda: UsageKey.from_string("block-v1:edX+DemoX+2026_T1+type@problem+block@tas1"))
+    usage_key = factory.Sequence(
+        lambda n: UsageKey.from_string(f"block-v1:edX+DemoX+2026_T1+type@problem+block@tas{n}")
+    )
     course_key = factory.LazyFunction(lambda: CourseKey.from_string("course-v1:edX+DemoX+2026_T1"))
     display_name = "Template Based Assignment"
     instructions = "Read and submit"
-    rubrics = [{"title": "Quality", "max_score": 10}]
     sort_order = 0
     assigned_by = factory.SubFactory(UserFactory)
 
@@ -257,3 +259,59 @@ class InstructorFeedbackModelTest(TestCase):
         feedback.create_version_snapshot()
         snapshot = InstructorFeedbackVersion.objects.get(instructor_feedback=feedback)
         self.assertIsNone(snapshot.submission_version)
+
+    def test_create_version_snapshot_is_scoped_per_feedback_row(self):
+        """Verify snapshot numbers start at 1 for each feedback record, not globally."""
+        first = InstructorFeedbackFactory()
+        second = InstructorFeedbackFactory()
+        first.create_version_snapshot()
+        second.create_version_snapshot()
+        self.assertEqual(
+            InstructorFeedbackVersion.objects.get(instructor_feedback=first).version_number,
+            1,
+        )
+        self.assertEqual(
+            InstructorFeedbackVersion.objects.get(instructor_feedback=second).version_number,
+            1,
+        )
+
+    def test_create_version_snapshot_increments_per_feedback(self):
+        """Verify repeated snapshots on one row allocate 1, then 2."""
+        feedback = InstructorFeedbackFactory()
+        feedback.create_version_snapshot()
+        feedback.create_version_snapshot()
+        versions = list(
+            InstructorFeedbackVersion.objects.filter(instructor_feedback=feedback).order_by("version_number")
+        )
+        self.assertEqual([row.version_number for row in versions], [1, 2])
+
+    def test_instructor_feedback_source_defaults_to_human(self):
+        feedback = InstructorFeedbackFactory()
+        self.assertEqual(feedback.source, InstructorFeedback.SOURCE_HUMAN)
+
+    def test_template_block_curie_enabled_defaults_false(self):
+        block = TemplateBlockFactory()
+        self.assertFalse(block.curie_enabled)
+
+
+class CurieReviewModelTest(TestCase):
+    def test_unique_together_submission_and_version(self):
+        submission = SubmissionFactory(version_number=3)
+        CurieReview.objects.create(submission=submission, submission_version_number=3)
+        with self.assertRaises(IntegrityError):
+            CurieReview.objects.create(submission=submission, submission_version_number=3)
+
+    def test_same_submission_can_have_multiple_versions(self):
+        submission = SubmissionFactory(version_number=4)
+        CurieReview.objects.create(submission=submission, submission_version_number=3)
+        CurieReview.objects.create(submission=submission, submission_version_number=4)
+        self.assertEqual(submission.curie_reviews.count(), 2)
+
+    def test_trigger_id_is_unique(self):
+        first = CurieReview.objects.create(submission=SubmissionFactory(), submission_version_number=1)
+        with self.assertRaises(IntegrityError):
+            CurieReview.objects.create(
+                submission=SubmissionFactory(),
+                submission_version_number=1,
+                trigger_id=first.trigger_id,
+            )

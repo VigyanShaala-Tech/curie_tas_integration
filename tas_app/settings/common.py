@@ -24,5 +24,18 @@ def plugin_settings(settings):
     Injects local settings into django settings
     """
 
-    # settings.SOCIAL_AUTH_REDIRECT_IS_HTTPS = True
-    # SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+    settings.CURIE_ENABLED = getattr(settings, "CURIE_ENABLED", False)
+    settings.CURIE_TRIGGER_URL = getattr(settings, "CURIE_TRIGGER_URL", "")
+    settings.CURIE_CALLBACK_BASE_URL = getattr(settings, "CURIE_CALLBACK_BASE_URL", "")
+    settings.CURIE_AUTH_HEADER_NAME = getattr(settings, "CURIE_AUTH_HEADER_NAME", "")
+    settings.CURIE_SHARED_SECRET = getattr(settings, "CURIE_SHARED_SECRET", "")
+    settings.CURIE_CONNECT_TIMEOUT_SECONDS = getattr(settings, "CURIE_CONNECT_TIMEOUT_SECONDS", 3)
+    settings.CURIE_REQUEST_TIMEOUT_SECONDS = getattr(settings, "CURIE_REQUEST_TIMEOUT_SECONDS", 10)
+    settings.CURIE_REVIEW_TIMEOUT_SECONDS = getattr(settings, "CURIE_REVIEW_TIMEOUT_SECONDS", 300)
+    settings.CURIE_REVIEW_MAX_WAIT_SECONDS = getattr(settings, "CURIE_REVIEW_MAX_WAIT_SECONDS", 1800)
+    settings.CURIE_COMPONENT_PASS_THRESHOLD = getattr(settings, "CURIE_COMPONENT_PASS_THRESHOLD", 6.0)
+
+    imports = list(getattr(settings, "CELERY_IMPORTS", []) or [])
+    if "tas_app.curie.celery_tasks" not in imports:
+        imports.append("tas_app.curie.celery_tasks")
+    settings.CELERY_IMPORTS = imports

@@ -32,14 +32,18 @@ class TASIntegrationConfig(AppConfig):
         },
         PluginSettings.CONFIG: {
             ProjectType.LMS: {
-                # uncomment these to activate
                 SettingsType.PRODUCTION: {PluginSettings.RELATIVE_PATH: "settings.production"},
                 SettingsType.COMMON: {PluginSettings.RELATIVE_PATH: "settings.common"},
-            }
+            },
+            ProjectType.CMS: {
+                SettingsType.PRODUCTION: {PluginSettings.RELATIVE_PATH: "settings.production"},
+                SettingsType.COMMON: {PluginSettings.RELATIVE_PATH: "settings.common"},
+            },
         },
     }
 
     def ready(self):
         from .signals import handlers
+        from .curie import celery_tasks  # noqa: F401  register deliver_curie_trigger on LMS/CMS workers
 
         log.debug("{label} is ready.".format(label=self.label))

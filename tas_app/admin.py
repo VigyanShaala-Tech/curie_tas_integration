@@ -22,6 +22,7 @@ from .models import (
     Submission,
     SubmissionVersion,
     InstructorFeedback,
+    CurieReview,
 )
 
 
@@ -80,6 +81,7 @@ class TemplateBlockAdmin(admin.ModelAdmin):
         "template",
         "display_name",
         "rubric",
+        "curie_enabled",
         "usage_key",
         "course_key",
         "sort_order",
@@ -89,7 +91,7 @@ class TemplateBlockAdmin(admin.ModelAdmin):
     # Enable searching by related template name, rubric name, usage key, and course key
     search_fields = ("template__name", "rubric__name", "usage_key", "course_key")
     # Filter by template, rubric, and course for easy navigation
-    list_filter = ("template", "rubric", "course_key")
+    list_filter = ("template", "rubric", "curie_enabled", "course_key")
     # Use raw_id_fields for related fields to aid in performance
     raw_id_fields = ("template", "rubric", "assigned_by")
     # Order by assignment time, course, usage, and sort order
@@ -142,12 +144,13 @@ class InstructorFeedbackAdmin(admin.ModelAdmin):
         "submission",
         "instructor",
         "status",
+        "source",
         "created",
     )
     # Search by student username via submission relation
     search_fields = ("submission__student__username",)
     # Filter feedback entries by status
-    list_filter = ("status",)
+    list_filter = ("status", "source")
     # Use raw_id_fields for foreign keys to support big user tables
     raw_id_fields = (
         "submission",
@@ -155,3 +158,23 @@ class InstructorFeedbackAdmin(admin.ModelAdmin):
     )
     # Show newest feedback first
     ordering = ("-created",)
+
+
+@admin.register(CurieReview)
+class CurieReviewAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "submission",
+        "submission_version_number",
+        "status",
+        "verdict",
+        "trigger_id",
+        "requested_at",
+        "completed_at",
+    )
+    search_fields = ("trigger_id", "submission__student__username", "error_detail")
+    list_filter = ("status", "verdict")
+    raw_id_fields = ("submission",)
+    date_hierarchy = "requested_at"
+    ordering = ("-requested_at",)
+    readonly_fields = ("trigger_id", "requested_at", "completed_at", "created", "modified")
