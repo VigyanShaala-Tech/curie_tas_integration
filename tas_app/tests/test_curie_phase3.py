@@ -19,6 +19,7 @@ from tas_app.curie.constants import (
 from tas_app.curie.delivery import attempt_trigger_delivery, retry_countdown_seconds, run_deliver_curie_trigger
 from tas_app.curie.submit import CurieSubmitError, submit_student_submission
 from tas_app.curie.trigger import RetryableTriggerError, TerminalTriggerError, build_trigger_payload, send_trigger
+from tas_app.curie.validation import CallbackValidationError
 from tas_app.models import CurieReview, InstructorFeedback, STATUS_APPROVED, STATUS_PENDING, Submission
 from tas_app.tests.test_curie_slice import SLICE_SETTINGS, _success_payload, _swot_submission
 from tas_app.tests.test_models import InstructorFeedbackFactory, UserFactory
@@ -127,6 +128,29 @@ class CurieTriggerDeliveryTest(TestCase):
 
 @override_settings(**SLICE_SETTINGS)
 class CurieCallbackRaceTest(TestCase):
+    def test_callback_uses_frozen_trigger_fields_after_template_edit(self):
+        submission = _swot_submission(status=Submission.STATUS_SUBMITTED, version_number=2)
+        review = CurieReview.objects.create(submission=submission, submission_version_number=2)
+        review.trigger_payload = build_trigger_payload(review, submission)
+        review.save(update_fields=["trigger_payload", "modified"])
+
+        template = submission.template_block.template
+        template.fields = [{"id": "replacement", "label": "Replacement", "active": True}]
+        template.save(update_fields=["fields", "modified"])
+
+        self.assertEqual(apply_callback(review, _success_payload(review)), "applied")
+        review.refresh_from_db()
+        self.assertEqual(review.status, CurieReview.STATUS_READY)
+
+    def test_callback_rejects_field_not_present_in_frozen_trigger(self):
+        submission = _swot_submission(status=Submission.STATUS_SUBMITTED, version_number=2)
+        review = CurieReview.objects.create(submission=submission, submission_version_number=2)
+        payload = _success_payload(review)
+        payload["field_feedback"][0]["field_id"] = "replacement"
+
+        with self.assertRaisesMessage(CallbackValidationError, "not on the submitted template"):
+            apply_callback(review, payload)
+
     def test_stale_callback_is_409_and_does_not_mutate(self):
         submission = _swot_submission(status=Submission.STATUS_SUBMITTED, version_number=3)
         review = CurieReview.objects.create(submission=submission, submission_version_number=2)

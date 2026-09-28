@@ -46,6 +46,7 @@ FIELD_COLOR_GOOD = "good"
 TIMEOUT_ERROR_DETAIL = "No response from CURIE within the maximum wait window."
 TRIGGER_EXHAUSTED_ERROR_DETAIL = "CURIE trigger retries exhausted."
 HUMAN_SUPERSEDED_DETAIL = "CURIE callback acknowledged but not applied: human owns the projection."
+LEARNER_FAILURE_DETAIL = "CURIE could not complete this review. Please try again."
 
 TRIGGER_RETRY_COUNTDOWNS = (15, 60, 240)
 TRIGGER_RETRY_JITTER_RATIO = 0.2

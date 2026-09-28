@@ -17,7 +17,13 @@ from tas_app.curie.constants import (
     VERDICT_ACCEPTED,
     VERDICT_REJECTED,
 )
-from tas_app.curie.scoring import compute_verdict, field_color_for_score, instructor_rubric_entries, star_rating
+from tas_app.curie.scoring import (
+    compute_verdict,
+    criterion_wise_scores,
+    field_color_for_score,
+    instructor_rubric_entries,
+    star_rating,
+)
 from tas_app.curie.settings import CurieSettingsError, validate_curie_settings
 from tas_app.curie.timeout import is_slow_pending, resolve_timeout
 from tas_app.curie.transitions import (
@@ -42,7 +48,7 @@ def _field(field_id, values, weight=1):
         "field_id": field_id,
         "weight": weight,
         "comment": f"{field_id} comment",
-        "criterion_scores": [] if weight == 0 else _scores(values),
+        "criterion_scores": _scores(values),
     }
 
 
@@ -58,7 +64,7 @@ class CurieScoringTest(SimpleTestCase):
 
     def test_score_just_below_six_rejects(self):
         gate = _scores((9, 8, 9))
-        fields = [_field("goal", (5, 6, 6)), _field("contribution", (), weight=0)]
+        fields = [_field("goal", (5, 6, 6)), _field("contribution", (10, 10, 10), weight=0)]
         self.assertEqual(compute_verdict(gate, fields, threshold=6.0), VERDICT_REJECTED)
 
     def test_gate_failure_with_empty_fields_rejects(self):
@@ -67,7 +73,7 @@ class CurieScoringTest(SimpleTestCase):
     def test_weight_zero_field_does_not_change_verdict_or_stars(self):
         fields = [
             _field("goal", (9, 9, 9)),
-            _field("contribution", (), weight=0),
+            _field("contribution", (0, 0, 0), weight=0),
         ]
         self.assertEqual(compute_verdict(_scores((9, 9, 9)), fields, threshold=6.0), VERDICT_ACCEPTED)
         self.assertEqual(star_rating(fields), 5)
@@ -82,6 +88,21 @@ class CurieScoringTest(SimpleTestCase):
     def test_star_rating_is_whole_stars(self):
         fields = [_field("goal", (7, 7, 7))]
         self.assertEqual(star_rating(fields), 4)
+
+    def test_criterion_scores_use_field_weights(self):
+        fields = [
+            _field("goal", (8, 6, 4), weight=1),
+            _field("action_plans", (10, 9, 8), weight=2),
+            _field("contribution", (0, 0, 0), weight=0),
+        ]
+        self.assertEqual(
+            criterion_wise_scores(fields),
+            {
+                "Task Relevance": 28 / 3,
+                "Reasoning / Understanding": 8.0,
+                "Specificity & Evidence": 20 / 3,
+            },
+        )
 
     def test_gate_failure_has_no_star_rating(self):
         self.assertIsNone(star_rating([]))
@@ -105,7 +126,7 @@ class CurieValidationTest(SimpleTestCase):
             "submission_version_number": 2,
             "result": "success",
             "gate_criterion_scores": _scores((9, 8, 9)),
-            "field_feedback": [_field("goal", (9, 8, 9)), _field("contribution", (), weight=0)],
+            "field_feedback": [_field("goal", (9, 8, 9)), _field("contribution", (9, 9, 9), weight=0)],
             "overall_feedback": "Strong work.",
         }
         normalized = validate_callback_payload(payload, allowed_field_ids=["goal", "contribution"])
@@ -140,7 +161,7 @@ class CurieValidationTest(SimpleTestCase):
         with self.assertRaises(CallbackValidationError):
             validate_callback_payload(payload)
 
-    def test_weight_zero_with_scores_is_rejected(self):
+    def test_non_negative_integer_weights_and_weight_zero_scores_are_accepted(self):
         payload = {
             "trigger_id": "t",
             "user_id": "1",
@@ -151,11 +172,29 @@ class CurieValidationTest(SimpleTestCase):
             "field_feedback": [
                 {
                     "field_id": "contribution",
-                    "weight": 0,
+                    "weight": 2,
                     "comment": "comment",
                     "criterion_scores": _scores((9, 9, 9)),
                 }
             ],
+            "overall_feedback": "ok",
+        }
+        normalized = validate_callback_payload(payload)
+        self.assertEqual(normalized["field_feedback"][0]["weight"], 2)
+
+        payload["field_feedback"][0]["weight"] = 0
+        normalized = validate_callback_payload(payload)
+        self.assertEqual(normalized["field_feedback"][0]["criterion_scores"][0]["score"], 9.0)
+
+    def test_negative_weight_is_rejected(self):
+        payload = {
+            "trigger_id": "t",
+            "user_id": "1",
+            "submission_id": "2",
+            "submission_version_number": 1,
+            "result": "success",
+            "gate_criterion_scores": _scores((9, 8, 9)),
+            "field_feedback": [_field("goal", (9, 9, 9), weight=-1)],
             "overall_feedback": "ok",
         }
         with self.assertRaises(CallbackValidationError):
@@ -282,7 +321,7 @@ class CurieReviewRegressionTest(SimpleTestCase):
             2,
         )
 
-    def test_field_weight_must_be_integer_zero_or_one(self):
+    def test_field_weight_must_be_non_negative_json_integer(self):
         payload = {
             "trigger_id": "t",
             "user_id": "1",
@@ -292,7 +331,7 @@ class CurieReviewRegressionTest(SimpleTestCase):
             "gate_criterion_scores": _scores((9, 8, 9)),
             "overall_feedback": "ok",
         }
-        for weight in (1.0, True, "1", 2):
+        for weight in (1.0, True, "1", -1):
             payload["field_feedback"] = [
                 {
                     "field_id": "goal",
@@ -303,6 +342,12 @@ class CurieReviewRegressionTest(SimpleTestCase):
             ]
             with self.assertRaises(CallbackValidationError):
                 validate_callback_payload(payload)
+
+        payload["field_feedback"][0]["weight"] = 2
+        self.assertEqual(
+            validate_callback_payload(payload)["field_feedback"][0]["weight"],
+            2,
+        )
 
     @override_settings(
         CURIE_ENABLED=True,

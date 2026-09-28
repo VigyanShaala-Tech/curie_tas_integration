@@ -112,21 +112,18 @@ def validate_field_feedback(
             raise CallbackValidationError(f"Duplicate field_id {field_id!r}.")
         if allowed_field_ids is not None and field_id not in allowed_field_ids:
             raise CallbackValidationError(f"field_id {field_id!r} is not on the submitted template.")
-        weight = _require_json_int(entry.get("weight"), f"field_feedback[{index}].weight")
-        if weight not in (0, 1):
-            raise CallbackValidationError(f"field_feedback[{index}].weight must be 0 or 1.")
+        weight = _require_json_int(
+            entry.get("weight"),
+            f"field_feedback[{index}].weight",
+            minimum=0,
+        )
         comment = entry.get("comment")
         if not isinstance(comment, str) or not comment.strip():
             raise CallbackValidationError(f"field_feedback[{index}].comment is required.")
         scores = validate_criterion_scores(
             entry.get("criterion_scores"),
             label=f"field_feedback[{index}].criterion_scores",
-            allow_empty=weight == 0,
         )
-        if weight == 0 and scores:
-            raise CallbackValidationError(f"weight-zero field {field_id!r} must not include criterion scores.")
-        if weight == 1 and not scores:
-            raise CallbackValidationError(f"weight-one field {field_id!r} must include criterion scores.")
         seen_ids.append(field_id)
         normalized.append(
             {

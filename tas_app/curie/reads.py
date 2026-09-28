@@ -7,6 +7,7 @@ from typing import Any
 
 from django.utils import timezone
 
+from tas_app.curie.constants import LEARNER_FAILURE_DETAIL
 from tas_app.curie.policy import current_review, feedback_source_for
 from tas_app.curie.scoring import (
     average_criterion_scores,
@@ -109,7 +110,7 @@ def learner_review_payload(review: CurieReview, *, now: datetime | None = None) 
         "star_rating": star_rating(review.field_feedback) if ready else None,
         "is_slow_pending": _is_slow(review, now),
         "submission_version_number": review.submission_version_number,
-        "error_detail": review.error_detail if review.status == CurieReview.STATUS_FAILED else "",
+        "error_detail": LEARNER_FAILURE_DETAIL if review.status == CurieReview.STATUS_FAILED else "",
         "requested_at": review.requested_at,
         "completed_at": review.completed_at,
     }
@@ -127,6 +128,7 @@ def staff_review_payload(review: CurieReview, *, now: datetime | None = None) ->
             "gate_score": average_criterion_scores(gate) if ready and gate else None,
             "criterion_wise_scores": criterion_wise_scores(review.field_feedback) if ready else {},
             "field_feedback": staff_field_entries(review.field_feedback) if ready else [],
+            "error_detail": review.error_detail if review.status == CurieReview.STATUS_FAILED else "",
             "instructor_form_locked": instructor_form_locked(review_status=review.status),
         }
     )

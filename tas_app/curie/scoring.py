@@ -42,14 +42,14 @@ def component_score(entry: Mapping[str, Any]) -> float | None:
 
 
 def scored_component_entries(field_feedback: Sequence[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
-    return [entry for entry in field_feedback if int(entry.get("weight", 1)) != 0]
+    return [entry for entry in field_feedback if int(entry.get("weight", 1)) > 0]
 
 
 def all_component_scores(
     gate_criterion_scores: Sequence[Mapping[str, Any]],
     field_feedback: Sequence[Mapping[str, Any]],
 ) -> list[float]:
-    """Gate mean plus every weight=1 field mean. Weight-zero fields are skipped."""
+    """Gate mean plus every positive-weight field mean. Weight-zero fields are skipped."""
     scores = [average_criterion_scores(gate_criterion_scores)]
     for entry in field_feedback:
         field_score = component_score(entry)
@@ -83,24 +83,30 @@ def field_color_for_score(score: float | None, *, threshold: float = DEFAULT_COM
 
 
 def criterion_wise_scores(field_feedback: Sequence[Mapping[str, Any]]) -> dict[str, float]:
-    """Average each CURIE criterion across weight=1 fields only. Gate is excluded."""
-    buckets: dict[str, list[float]] = {name: [] for name in CURIE_CRITERIA}
+    """Weighted mean per CURIE criterion across positive-weight fields. Gate is excluded."""
+    weighted_totals = {name: 0.0 for name in CURIE_CRITERIA}
+    total_weights = {name: 0 for name in CURIE_CRITERIA}
     for entry in scored_component_entries(field_feedback):
+        weight = int(entry.get("weight", 1))
         seen = set()
         for item in entry.get("criterion_scores") or []:
             name = item["criterion"]
-            if name not in buckets:
+            if name not in weighted_totals:
                 raise ScoringError(f"Unknown criterion name {name!r}.")
             if name in seen:
                 raise ScoringError(f"Duplicate criterion {name!r} on field {entry.get('field_id')!r}.")
             seen.add(name)
-            buckets[name].append(float(item["score"]))
+            weighted_totals[name] += weight * float(item["score"])
+            total_weights[name] += weight
         missing = [name for name in CURIE_CRITERIA if name not in seen]
         if missing:
             raise ScoringError(f"Field {entry.get('field_id')!r} is missing criteria {missing}.")
-    if any(not values for values in buckets.values()):
+    if any(weight == 0 for weight in total_weights.values()):
         return {}
-    return {name: sum(values) / len(values) for name, values in buckets.items()}
+    return {
+        name: weighted_totals[name] / total_weights[name]
+        for name in CURIE_CRITERIA
+    }
 
 
 def star_rating(field_feedback: Sequence[Mapping[str, Any]]) -> int | None:

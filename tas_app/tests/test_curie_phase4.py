@@ -13,7 +13,7 @@ from rest_framework.test import APIRequestFactory, force_authenticate
 
 from tas_app.curie.api import AdminCurieReviewAPIView, StudentCurieReviewAPIView
 from tas_app.curie.callback import apply_callback
-from tas_app.curie.constants import SOURCE_CURIE, SOURCE_HUMAN, TIMEOUT_ERROR_DETAIL
+from tas_app.curie.constants import LEARNER_FAILURE_DETAIL, SOURCE_CURIE, SOURCE_HUMAN, TIMEOUT_ERROR_DETAIL
 from tas_app.curie.scoring import star_rating
 from tas_app.models import (
     CurieReview,
@@ -79,7 +79,7 @@ def _ready_review(submission, version_number=None, field_values=(9, 8, 9)):
             "field_id": "contribution",
             "weight": 0,
             "comment": "Keep this reflection.",
-            "criterion_scores": [],
+            "criterion_scores": _scores(field_values),
         },
     ]
     return CurieReview.objects.create(
@@ -223,7 +223,8 @@ class CurieLearnerReadApiTest(TestCase):
         )
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data["status"], CurieReview.STATUS_FAILED)
-        self.assertEqual(response.data["error_detail"], TIMEOUT_ERROR_DETAIL)
+        self.assertEqual(response.data["error_detail"], LEARNER_FAILURE_DETAIL)
+        self.assertNotIn(TIMEOUT_ERROR_DETAIL, str(response.data))
         review.refresh_from_db()
         submission.refresh_from_db()
         self.assertEqual(review.status, CurieReview.STATUS_FAILED)
@@ -299,6 +300,7 @@ class CurieTimeoutReadApiTest(TestCase):
         )
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data["curie_review"]["status"], CurieReview.STATUS_FAILED)
+        self.assertEqual(response.data["curie_review"]["error_detail"], TIMEOUT_ERROR_DETAIL)
         self.assertFalse(response.data["curie_review"]["instructor_form_locked"])
         _assert_timed_out_without_projection(self, submission, review)
 
@@ -340,7 +342,7 @@ class CurieTimeoutReadApiTest(TestCase):
         self.assertEqual(second.status_code, 200)
         self.assertEqual(first.data["status"], CurieReview.STATUS_FAILED)
         self.assertEqual(second.data["status"], CurieReview.STATUS_FAILED)
-        self.assertEqual(second.data["error_detail"], TIMEOUT_ERROR_DETAIL)
+        self.assertEqual(second.data["error_detail"], LEARNER_FAILURE_DETAIL)
         _assert_timed_out_without_projection(self, submission, review)
 
 

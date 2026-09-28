@@ -25,6 +25,9 @@ def _scores(values):
 
 
 def _success_payload(review):
+    if not review.trigger_payload:
+        review.trigger_payload = build_trigger_payload(review, review.submission)
+        review.save(update_fields=["trigger_payload", "modified"])
     return {
         "trigger_id": str(review.trigger_id),
         "user_id": str(review.submission.student_id),
@@ -49,7 +52,7 @@ def _success_payload(review):
                 "field_id": "contribution",
                 "weight": 0,
                 "comment": "Keep this reflection.",
-                "criterion_scores": [],
+                "criterion_scores": _scores((9, 8, 9)),
             },
         ],
         "overall_feedback": "Strong submission overall. Your answers form a coherent SWOT.",

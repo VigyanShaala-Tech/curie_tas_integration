@@ -49,11 +49,12 @@ def header_secret_matches(request) -> bool:
     return hmac.compare_digest(supplied_bytes, expected_bytes)
 
 
-def submitted_field_ids(submission) -> list[str]:
-    template = submission.template_block.template
-    fields = template.active_fields() if hasattr(template, "active_fields") else template.fields or []
-    ids = [str(field.get("id") or field.get("key") or field.get("name") or "") for field in fields]
-    return [field_id for field_id in ids if field_id]
+def submitted_field_ids(review: CurieReview) -> list[str]:
+    """Return field IDs from the immutable payload issued for this review."""
+    form_data = (review.trigger_payload or {}).get("form_data")
+    if not isinstance(form_data, dict):
+        return []
+    return [str(field_id) for field_id in form_data if str(field_id)]
 
 
 def _feedback_source_and_status(submission) -> tuple[str | None, str | None]:
@@ -105,7 +106,9 @@ def apply_callback(review: CurieReview, raw_payload: dict, *, after_success=None
             .get(pk=review.pk)
         )
 
-        allowed_ids = submitted_field_ids(submission)
+        allowed_ids = submitted_field_ids(review)
+        if raw_payload.get("result") == RESULT_SUCCESS and not allowed_ids:
+            raise CallbackValidationError("Stored trigger payload has no submitted field IDs.")
         payload = validate_callback_payload(
             raw_payload,
             allowed_field_ids=allowed_ids or None,
