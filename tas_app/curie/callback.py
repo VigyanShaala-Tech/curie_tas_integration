@@ -19,7 +19,7 @@ from tas_app.curie.constants import (
 )
 from tas_app.curie.metrics import record_callback_outcome
 from tas_app.curie.projection import apply_curie_success
-from tas_app.curie.settings import auth_header_name, component_pass_threshold, shared_secret
+from tas_app.curie.settings import auth_header_name, shared_secret
 from tas_app.curie.transitions import can_apply_curie_projection, human_owns_projection
 from tas_app.curie.validation import CallbackValidationError, validate_callback_payload
 from tas_app.models import CurieReview, InstructorFeedback, Submission
@@ -112,7 +112,6 @@ def apply_callback(review: CurieReview, raw_payload: dict, *, after_success=None
         payload = validate_callback_payload(
             raw_payload,
             allowed_field_ids=allowed_ids or None,
-            threshold=component_pass_threshold(),
         )
 
         if str(payload["trigger_id"]) != str(review.trigger_id):

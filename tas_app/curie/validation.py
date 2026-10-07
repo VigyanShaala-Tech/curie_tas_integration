@@ -5,8 +5,7 @@ from __future__ import annotations
 import math
 from typing import Any, Mapping, Sequence
 
-from tas_app.curie.constants import CURIE_CRITERIA, DEFAULT_COMPONENT_PASS_THRESHOLD, RESULT_ERROR, RESULT_SUCCESS
-from tas_app.curie.scoring import average_criterion_scores
+from tas_app.curie.constants import CURIE_CRITERIA, RESULT_ERROR, RESULT_SUCCESS
 
 
 class CallbackValidationError(ValueError):
@@ -87,19 +86,14 @@ def validate_field_feedback(
     field_feedback: Any,
     *,
     allowed_field_ids: Sequence[str] | None = None,
-    require_empty: bool = False,
 ) -> list[dict[str, Any]]:
     items = _require_list(field_feedback, "field_feedback")
-    if require_empty:
-        if items:
-            raise CallbackValidationError("field_feedback must be empty when the gate fails.")
-        return []
     if not items:
         if allowed_field_ids:
             raise CallbackValidationError(
                 f"field_feedback is missing submitted fields {list(allowed_field_ids)}."
             )
-        raise CallbackValidationError("field_feedback is required when the gate passes.")
+        raise CallbackValidationError("field_feedback is required when result is success.")
 
     seen_ids = []
     normalized = []
@@ -144,7 +138,6 @@ def validate_callback_payload(
     payload: Mapping[str, Any],
     *,
     allowed_field_ids: Sequence[str] | None = None,
-    threshold: float = DEFAULT_COMPONENT_PASS_THRESHOLD,
 ) -> dict[str, Any]:
     """Return a normalized callback dict or raise CallbackValidationError."""
     body = _require_mapping(payload, "callback")
@@ -184,11 +177,9 @@ def validate_callback_payload(
     if not isinstance(overall, str) or not overall.strip():
         raise CallbackValidationError("overall_feedback is required when result is success.")
     gate = validate_criterion_scores(body.get("gate_criterion_scores"), label="gate_criterion_scores")
-    gate_failed = average_criterion_scores(gate) < threshold
     fields = validate_field_feedback(
         body.get("field_feedback"),
         allowed_field_ids=allowed_field_ids,
-        require_empty=gate_failed,
     )
     normalized.update(
         {

@@ -67,8 +67,9 @@ class CurieScoringTest(SimpleTestCase):
         fields = [_field("goal", (5, 6, 6)), _field("contribution", (10, 10, 10), weight=0)]
         self.assertEqual(compute_verdict(gate, fields, threshold=6.0), VERDICT_REJECTED)
 
-    def test_gate_failure_with_empty_fields_rejects(self):
-        self.assertEqual(compute_verdict(_scores((3, 2, 4)), [], threshold=6.0), VERDICT_REJECTED)
+    def test_gate_failure_with_scored_fields_rejects(self):
+        fields = [_field("goal", (9, 8, 9))]
+        self.assertEqual(compute_verdict(_scores((3, 2, 4)), fields, threshold=6.0), VERDICT_REJECTED)
 
     def test_weight_zero_field_does_not_change_verdict_or_stars(self):
         fields = [
@@ -104,8 +105,8 @@ class CurieScoringTest(SimpleTestCase):
             },
         )
 
-    def test_gate_failure_has_no_star_rating(self):
-        self.assertIsNone(star_rating([]))
+    def test_gate_failure_feedback_has_star_rating(self):
+        self.assertEqual(star_rating([_field("goal", (9, 8, 7))]), 4)
 
     def test_instructor_rubrics_use_tas_category_names_and_marks(self):
         entries = instructor_rubric_entries([_field("goal", (9, 8, 7))])
@@ -204,7 +205,7 @@ class CurieValidationTest(SimpleTestCase):
 class CurieReviewRegressionTest(SimpleTestCase):
     """Focused coverage for the seven Phase 1 review corrections."""
 
-    def test_passing_gate_requires_every_submitted_field(self):
+    def test_success_requires_every_submitted_field(self):
         payload = {
             "trigger_id": "t",
             "user_id": "1",
@@ -218,7 +219,7 @@ class CurieReviewRegressionTest(SimpleTestCase):
         with self.assertRaises(CallbackValidationError):
             validate_callback_payload(payload, allowed_field_ids=["goal", "contribution"])
 
-    def test_failing_gate_rejects_non_empty_field_feedback(self):
+    def test_failing_gate_accepts_complete_field_feedback(self):
         payload = {
             "trigger_id": "t",
             "user_id": "1",
@@ -229,10 +230,10 @@ class CurieReviewRegressionTest(SimpleTestCase):
             "field_feedback": [_field("goal", (9, 8, 9))],
             "overall_feedback": "Gate failed.",
         }
-        with self.assertRaises(CallbackValidationError):
-            validate_callback_payload(payload, allowed_field_ids=["goal"])
+        normalized = validate_callback_payload(payload, allowed_field_ids=["goal"])
+        self.assertEqual(normalized["field_feedback"][0]["field_id"], "goal")
 
-    def test_failing_gate_accepts_empty_field_feedback(self):
+    def test_failing_gate_rejects_empty_field_feedback(self):
         payload = {
             "trigger_id": "t",
             "user_id": "1",
@@ -243,8 +244,8 @@ class CurieReviewRegressionTest(SimpleTestCase):
             "field_feedback": [],
             "overall_feedback": "Gate failed.",
         }
-        normalized = validate_callback_payload(payload, allowed_field_ids=["goal"])
-        self.assertEqual(normalized["field_feedback"], [])
+        with self.assertRaises(CallbackValidationError):
+            validate_callback_payload(payload, allowed_field_ids=["goal"])
 
     def test_human_ownership_survives_withdraw_to_pending(self):
         self.assertTrue(human_owns_projection(SOURCE_HUMAN, "pending"))

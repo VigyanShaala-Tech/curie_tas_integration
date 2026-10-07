@@ -190,6 +190,25 @@ class CurieCallbackViewTest(TestCase):
         self.assertEqual(submission.status, Submission.STATUS_APPROVED)
         self.assertIn("Strong submission overall", feedback.comment)
 
+    def test_gate_failure_projects_feedback_as_rejected(self):
+        submission = _swot_submission(status=Submission.STATUS_SUBMITTED, version_number=2)
+        review = CurieReview.objects.create(submission=submission, submission_version_number=2)
+        payload = _success_payload(review)
+        payload["gate_criterion_scores"] = _scores((5, 5, 4))
+
+        response = self._post(review.trigger_id, payload)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["status"], "applied")
+        review.refresh_from_db()
+        submission.refresh_from_db()
+        self.assertEqual(review.status, CurieReview.STATUS_READY)
+        self.assertEqual(review.verdict, CurieReview.VERDICT_REJECTED)
+        self.assertEqual(len(review.field_feedback), len(SWOT_FIELDS))
+        self.assertEqual(submission.status, Submission.STATUS_REJECTED)
+        self.assertEqual(submission.feedback.source, InstructorFeedback.SOURCE_CURIE)
+        self.assertEqual(submission.feedback.status, "rejected")
+
     def test_duplicate_success_callback_is_replayed(self):
         submission = _swot_submission(status=Submission.STATUS_SUBMITTED, version_number=2)
         review = CurieReview.objects.create(submission=submission, submission_version_number=2)
