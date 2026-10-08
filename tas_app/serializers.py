@@ -2,7 +2,16 @@ from opaque_keys import InvalidKeyError
 from opaque_keys.edx.keys import CourseKey, UsageKey
 from rest_framework import serializers
 
-from .models import InstructorFeedback, Rubric, Submission, Template, TemplateType, TemplateBlock, STATUS_CHOICES
+from .models import (
+    CurieReview,
+    InstructorFeedback,
+    Rubric,
+    Submission,
+    Template,
+    TemplateType,
+    TemplateBlock,
+    STATUS_CHOICES,
+)
 
 
 class TemplateTypeSerializer(serializers.ModelSerializer):
@@ -76,7 +85,9 @@ class StudentSubmissionCreateSerializer(serializers.Serializer):
         usage_key = attrs.get("usage_key")
 
         try:
-            template_block = TemplateBlock.objects.get(pk=template_block_id)
+            template_block = TemplateBlock.objects.select_related("template__template_type").get(
+                pk=template_block_id
+            )
         except (TemplateBlock.DoesNotExist, ValueError, TypeError) as exc:
             raise serializers.ValidationError({"template_block_id": "Invalid template_block_id."}) from exc
 
@@ -100,6 +111,10 @@ class StudentSubmissionResponseSerializer(serializers.ModelSerializer):
     course_id = serializers.SerializerMethodField()
     pdf_url = serializers.SerializerMethodField()
     feedback = serializers.SerializerMethodField()
+    curie_review_status = serializers.SerializerMethodField()
+    is_slow_pending = serializers.SerializerMethodField()
+    submission_attempt_count = serializers.SerializerMethodField()
+    at_max_attempts = serializers.SerializerMethodField()
     created_at = serializers.DateTimeField(source="created", read_only=True)
     updated_at = serializers.DateTimeField(source="modified", read_only=True)
 
@@ -117,6 +132,10 @@ class StudentSubmissionResponseSerializer(serializers.ModelSerializer):
             "submitted_at",
             "pdf_url",
             "feedback",
+            "curie_review_status",
+            "is_slow_pending",
+            "submission_attempt_count",
+            "at_max_attempts",
             "created_at",
             "updated_at",
         ]
@@ -141,9 +160,61 @@ class StudentSubmissionResponseSerializer(serializers.ModelSerializer):
     def get_feedback(self, obj):
         try:
             fb = obj.feedback
-            return {"status": fb.status, "comment": fb.comment, "rubrics": fb.rubrics}
-        except Exception:
+        except InstructorFeedback.DoesNotExist:
             return None
+
+        payload = {
+            "status": fb.status,
+            "comment": fb.comment,
+            "source": fb.source,
+        }
+        if fb.source != InstructorFeedback.SOURCE_CURIE:
+            payload["rubrics"] = fb.rubrics
+            return payload
+
+        from tas_app.curie.reads import learner_field_entries, reviews_for
+
+        payload["rubrics"] = []
+        reviews = reviews_for(obj)
+        review = next(
+            (
+                item
+                for item in reviews
+                if item.submission_version_number == obj.version_number
+                and item.status == CurieReview.STATUS_READY
+            ),
+            None,
+        )
+        if review is None:
+            review = next(
+                (item for item in reviews if item.status == CurieReview.STATUS_READY),
+                None,
+            )
+        if review is not None:
+            payload["field_feedback"] = learner_field_entries(review.field_feedback)
+            payload["verdict"] = review.verdict
+        return payload
+
+    def get_curie_review_status(self, obj):
+        return self._curie_fields(obj)["curie_review_status"]
+
+    def get_is_slow_pending(self, obj):
+        return self._curie_fields(obj)["is_slow_pending"]
+
+    def get_submission_attempt_count(self, obj):
+        return self._curie_fields(obj)["submission_attempt_count"]
+
+    def get_at_max_attempts(self, obj):
+        return self._curie_fields(obj)["at_max_attempts"]
+
+    def _curie_fields(self, obj):
+        cached = getattr(obj, "_curie_read_fields", None)
+        if cached is None:
+            from tas_app.curie.reads import submission_curie_fields
+
+            cached = submission_curie_fields(obj)
+            obj._curie_read_fields = cached
+        return cached
 
 
 class StudentSubmissionPatchSerializer(serializers.Serializer):
@@ -209,6 +280,11 @@ class SubmissionVersionSerializer(serializers.Serializer):
     instructor_comment = serializers.SerializerMethodField()
     pdf_url = serializers.SerializerMethodField()
     download_url = serializers.SerializerMethodField()
+    attempt_number = serializers.SerializerMethodField()
+    curie_review_status = serializers.SerializerMethodField()
+    feedback_source = serializers.SerializerMethodField()
+    verdict = serializers.SerializerMethodField()
+    star_rating = serializers.SerializerMethodField()
     # Legacy fields retained for backward compatibility with existing clients.
     form_data = serializers.JSONField()
     saved_at = serializers.DateTimeField()
@@ -216,7 +292,11 @@ class SubmissionVersionSerializer(serializers.Serializer):
     def _latest_linked_feedback(self, obj):
         if hasattr(obj, "_cached_latest_linked_feedback"):
             return obj._cached_latest_linked_feedback
-        linked = obj.feedback_versions.order_by("-version_number").first()
+        prefetched = getattr(obj, "_prefetched_objects_cache", {}).get("feedback_versions")
+        if prefetched is not None:
+            linked = prefetched[0] if prefetched else None
+        else:
+            linked = next(iter(obj.feedback_versions.all()), None)
         obj._cached_latest_linked_feedback = linked
         return linked
 
@@ -251,6 +331,31 @@ class SubmissionVersionSerializer(serializers.Serializer):
 
     def get_download_url(self, obj):
         return self._absolute_pdf_url(obj)
+
+    def _curie_summary(self, obj):
+        return (self.context.get("curie_summaries") or {}).get(obj.version_number) or {}
+
+    def get_attempt_number(self, obj):
+        return (self.context.get("attempt_by_version") or {}).get(obj.version_number)
+
+    def get_curie_review_status(self, obj):
+        return self._curie_summary(obj).get("status")
+
+    def get_feedback_source(self, obj):
+        linked = self._latest_linked_feedback(obj)
+        if linked is None:
+            return None
+        if linked.instructor_id is not None:
+            return InstructorFeedback.SOURCE_HUMAN
+        if self._curie_summary(obj):
+            return InstructorFeedback.SOURCE_CURIE
+        return InstructorFeedback.SOURCE_HUMAN
+
+    def get_verdict(self, obj):
+        return self._curie_summary(obj).get("verdict")
+
+    def get_star_rating(self, obj):
+        return self._curie_summary(obj).get("star_rating")
 
 
 class TemplateTypeBasicSerializer(serializers.ModelSerializer):

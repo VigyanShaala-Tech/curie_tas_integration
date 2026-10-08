@@ -1,7 +1,7 @@
 # GitHub Actions Workflow for Deploying Open edX Backend changes to VigyanShaala UAT EC2
 # This workflow can be triggered manually from the 'Actions' tab via workflow_dispatch,
-# and also triggers automatically on push or pull request merge events to the "uat" branch.
-# The script checks out the repository, sets up SSH, verifies the host key, and deploys Open edX on the remote EC2 instance.
+# and also triggers automatically on pushes to the "uat" branch.
+# The exact UAT plugin branch is installed in the Open edX image, migrated, and tested.
 
 name: Deploy Open edX Backend changes to VigyanShaala UAT EC2
 
@@ -12,26 +12,23 @@ on:
   push:
     branches:
       - uat
-  # Triggers deployment when a PR is merged to "uat" branch
-  pull_request:
-    branches:
-      - uat
-    types: [closed]
+permissions:
+  contents: read
 
 jobs:
   deploy:
-    # This job runs when triggered manually OR via branch push, or PR merge to "uat"
-    if: github.event_name == 'workflow_dispatch' || 
-        (github.event_name == 'push' && github.ref == 'refs/heads/uat') || 
-        (github.event_name == 'pull_request' && github.ref == 'refs/heads/uat' && github.event.pull_request.merged == true)
+    # A merged PR already emits a push to uat; a pull_request trigger would deploy twice.
+    if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/uat'
     runs-on: ubuntu-latest
     concurrency:
       group: uat-deploy
-      cancel-in-progress: true
+      cancel-in-progress: false
 
     steps:
       - name: 📦 Checkout repository
         uses: actions/checkout@v4
+        with:
+          ref: uat
 
       - name: 🔐 Set up SSH agent
         uses: webfactory/ssh-agent@v0.9.0
@@ -57,6 +54,10 @@ jobs:
             # Activate the virtual environment where Tutor is installed
             source ~/tutor-env/bin/activate
 
+            echo "🔹 Installing the UAT TAS plugin in the Open edX image"
+            tutor config save --append \
+              OPENEDX_EXTRA_PIP_REQUIREMENTS=git+https://github.com/VigyanShaala-Tech/curie_tas_integration.git@uat
+
             echo "🔹 Building Open edX Docker images with custom platform repo"
             tutor images build openedx \
               --build-arg EDX_PLATFORM_REPOSITORY=https://github.com/VigyanShaala-Tech/openedx-platform.git \
@@ -65,6 +66,25 @@ jobs:
 
             echo "🔹 Starting Open edX platform using Tutor"
             tutor local start -d
+
+            echo "🔹 Verifying the deployed plugin and applying migrations"
+            tutor local exec -T lms pip show tas-integration
+            tutor local exec -T lms python /openedx/edx-platform/manage.py lms migrate tas_app --noinput
+
+            echo "🔹 Running the CURIE backend regression suite"
+            tutor local exec -T lms python /openedx/edx-platform/manage.py lms test \
+              tas_app.tests.test_curie_domain \
+              tas_app.tests.test_curie_slice \
+              tas_app.tests.test_curie_phase3 \
+              tas_app.tests.test_curie_phase4 \
+              tas_app.tests.test_curie_metrics \
+              tas_app.tests.test_curie_submit \
+              tas_app.tests.test_models \
+              tas_app.tests.test_tasks \
+              --keepdb --verbosity=1
+
+            echo "🔹 Restarting Open edX services after migration"
+            tutor local restart openedx
 
             echo "✅ Deployment completed successfully on UAT EC2 instance!"
           EOF
