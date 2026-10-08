@@ -1,10 +1,11 @@
 import factory
+from types import SimpleNamespace
 from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
 from opaque_keys.edx.keys import CourseKey, UsageKey
 from unittest.mock import patch
 
-from tas_app.models import Submission, Template, TemplateBlock, TemplateType
+from tas_app.models import CurieReview, Submission, Template, TemplateBlock, TemplateType
 
 
 User = get_user_model()
@@ -75,3 +76,37 @@ class CeleryConfigurationTest(TestCase):
         submission = SubmissionFactory()
         submission.create_version_snapshot()
         create_snapshot_mock.assert_called_once()
+
+    @patch("tas_app.tasks.create_new_event_transaction_id", return_value="event-id")
+    @patch("tas_app.tasks.set_event_transaction_type")
+    @patch("tas_app.tasks.recalculate_subsection_grade_v3.apply_async")
+    @patch("tas_app.tasks.StudentModule.objects.update_or_create")
+    def test_successful_curie_grade_push_marks_review_published(
+        self,
+        mocked_update,
+        _mocked_recalculate,
+        _mocked_event_type,
+        _mocked_event_id,
+    ):
+        from django.utils import timezone
+
+        from tas_app.tasks import push_grade_to_lms
+
+        submission = SubmissionFactory()
+        review = CurieReview.objects.create(
+            submission=submission,
+            submission_version_number=submission.version_number,
+        )
+        mocked_update.return_value = (SimpleNamespace(modified=timezone.now()), True)
+
+        push_grade_to_lms.run(
+            usage_key_str=str(submission.usage_key),
+            course_key_str=str(submission.course_key),
+            student_id=submission.student_id,
+            earned=24,
+            max_possible=30,
+            curie_trigger_id=str(review.trigger_id),
+        )
+
+        review.refresh_from_db()
+        self.assertIsNotNone(review.grade_published_at)

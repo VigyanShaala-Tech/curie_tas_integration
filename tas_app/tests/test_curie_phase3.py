@@ -222,6 +222,61 @@ class CurieCallbackRaceTest(TestCase):
         self.assertEqual(submission.feedback.source, SOURCE_HUMAN)
         self.assertEqual(submission.feedback.status, STATUS_PENDING)
 
+    def test_human_owner_supersedes_late_error(self):
+        submission = _swot_submission(status=Submission.STATUS_SUBMITTED, version_number=2)
+        review = CurieReview.objects.create(
+            submission=submission,
+            submission_version_number=2,
+            status=CurieReview.STATUS_FAILED,
+            error_detail=TIMEOUT_ERROR_DETAIL,
+        )
+        InstructorFeedbackFactory(submission=submission, source=SOURCE_HUMAN, status=STATUS_PENDING)
+
+        response = _post_callback(review, _error_payload(review, "Later CURIE error"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["status"], "superseded")
+        review.refresh_from_db()
+        submission.refresh_from_db()
+        self.assertEqual(review.status, CurieReview.STATUS_FAILED)
+        self.assertIn(HUMAN_SUPERSEDED_DETAIL, review.error_detail)
+        self.assertEqual(submission.feedback.source, SOURCE_HUMAN)
+
+    def test_identical_replay_retries_after_commit_hook(self):
+        submission = _swot_submission(status=Submission.STATUS_SUBMITTED, version_number=2)
+        review = CurieReview.objects.create(submission=submission, submission_version_number=2)
+        payload = _success_payload(review)
+        self.assertEqual(apply_callback(review, payload), "applied")
+        review.refresh_from_db()
+        ran = []
+
+        with self.captureOnCommitCallbacks() as callbacks:
+            outcome = apply_callback(review, payload, after_success=lambda applied: ran.append(applied.pk))
+            self.assertEqual(outcome, "replayed")
+            self.assertEqual(ran, [])
+        for callback in callbacks:
+            callback()
+        self.assertEqual(ran, [review.pk])
+
+    def test_identical_replay_does_not_retry_curie_grade_after_human_override(self):
+        submission = _swot_submission(status=Submission.STATUS_SUBMITTED, version_number=2)
+        review = CurieReview.objects.create(submission=submission, submission_version_number=2)
+        payload = _success_payload(review)
+        self.assertEqual(apply_callback(review, payload), "applied")
+        review.refresh_from_db()
+        feedback = submission.feedback
+        feedback.source = SOURCE_HUMAN
+        feedback.status = STATUS_APPROVED
+        feedback.save(update_fields=["source", "status", "modified"])
+        ran = []
+
+        with self.captureOnCommitCallbacks() as callbacks:
+            outcome = apply_callback(review, payload, after_success=lambda applied: ran.append(applied.pk))
+            self.assertEqual(outcome, "replayed")
+        for callback in callbacks:
+            callback()
+        self.assertEqual(ran, [])
+
     def test_error_then_success_applies_late_result(self):
         submission = _swot_submission(status=Submission.STATUS_SUBMITTED, version_number=2)
         review = CurieReview.objects.create(submission=submission, submission_version_number=2)

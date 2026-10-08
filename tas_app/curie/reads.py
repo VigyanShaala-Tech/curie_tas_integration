@@ -100,7 +100,6 @@ def staff_field_entries(field_feedback: list[dict[str, Any]] | None) -> list[dic
 
 def learner_review_payload(review: CurieReview, *, now: datetime | None = None) -> dict[str, Any]:
     now = now or timezone.now()
-    pending = review.status == CurieReview.STATUS_PENDING_EVALUATION
     ready = review.status == CurieReview.STATUS_READY
     return {
         "status": review.status,

@@ -1,9 +1,8 @@
-from datetime import datetime
 import logging
 
 from celery import shared_task
 from common.djangoapps.util.date_utils import to_timestamp
-from django.contrib.auth.models import User
+from django.utils import timezone
 from opaque_keys.edx.keys import CourseKey, UsageKey
 from lms.djangoapps.courseware.models import StudentModule
 from lms.djangoapps.grades.tasks import recalculate_subsection_grade_v3
@@ -15,7 +14,15 @@ log = logging.getLogger(__name__)
 
 
 @shared_task(bind=True, max_retries=3, default_retry_delay=30)
-def push_grade_to_lms(self, usage_key_str, course_key_str, student_id, earned, max_possible):
+def push_grade_to_lms(
+    self,
+    usage_key_str,
+    course_key_str,
+    student_id,
+    earned,
+    max_possible,
+    curie_trigger_id=None,
+):
     """
     Write earned/max_possible into StudentModule and trigger subsection grade
     recalculation so the LMS course gradebook reflects the change immediately.
@@ -58,6 +65,13 @@ def push_grade_to_lms(self, usage_key_str, course_key_str, student_id, earned, m
                 event_transaction_type=PROBLEM_SUBMITTED_EVENT_TYPE,
             )
         )
+
+        if curie_trigger_id:
+            from tas_app.models import CurieReview
+
+            CurieReview.objects.filter(trigger_id=curie_trigger_id).update(
+                grade_published_at=timezone.now()
+            )
 
         log.info(
             "Grade pushed to LMS: student_id=%s block=%s earned=%s/%s",

@@ -12,7 +12,6 @@ from tas_app.curie.constants import (
     SOURCE_HUMAN,
     STATUS_FAILED,
     STATUS_PENDING_EVALUATION,
-    STATUS_READY,
     VERDICT_ACCEPTED,
     VERDICT_REJECTED,
 )

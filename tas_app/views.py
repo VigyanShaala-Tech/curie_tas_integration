@@ -127,7 +127,7 @@ def _get_template_block_by_usage_key(usage_key):
     return TemplateBlock.objects.select_related("rubric").get(usage_key=usage_key)
 
 
-def _push_submission_grade(submission, feedback_rubrics):
+def _push_submission_grade(submission, feedback_rubrics, *, curie_trigger_id=None):
     """
     Queue a Celery task to push the grade for a single approved submission.
 
@@ -151,6 +151,7 @@ def _push_submission_grade(submission, feedback_rubrics):
         student_id=submission.student_id,
         earned=earned,
         max_possible=max_possible,
+        curie_trigger_id=curie_trigger_id,
     )
 
 
@@ -1500,12 +1501,18 @@ class CurieReviewCallbackAPIView(APIView):
         def after_success(applied_review):
             if not should_push_grade(applied_review):
                 return
+            if applied_review.grade_published_at is not None:
+                return
             submission = applied_review.submission
             try:
                 rubrics = submission.feedback.rubrics
             except InstructorFeedback.DoesNotExist:
                 return
-            _push_submission_grade(submission, rubrics)
+            _push_submission_grade(
+                submission,
+                rubrics,
+                curie_trigger_id=str(applied_review.trigger_id),
+            )
 
         try:
             outcome = apply_callback(review, request.data, after_success=after_success)

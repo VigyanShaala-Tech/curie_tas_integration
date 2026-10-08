@@ -315,3 +315,12 @@ class CurieReviewModelTest(TestCase):
                 submission_version_number=1,
                 trigger_id=first.trigger_id,
             )
+
+    def test_grade_publication_starts_unpublished(self):
+        submission = SubmissionFactory()
+        review = CurieReview.objects.create(
+            submission=submission,
+            submission_version_number=submission.version_number,
+        )
+
+        self.assertIsNone(review.grade_published_at)

@@ -98,7 +98,7 @@ class Migration(migrations.Migration):
                     models.JSONField(
                         blank=True,
                         default=list,
-                        help_text="Per-field CURIE comments and criterion scores. Empty on gate failure.",
+                        help_text="Per-field CURIE comments and criterion scores for every successful review.",
                     ),
                 ),
                 ("overall_feedback", models.TextField(blank=True, default="")),

@@ -135,9 +135,16 @@ def apply_callback(review: CurieReview, raw_payload: dict, *, after_success=None
             record_callback_outcome("stale")
             return "stale"
 
+        source, status = _feedback_source_and_status(submission)
+
         if _success_matches_stored(review, payload):
+            if after_success is not None and not human_owns_projection(source, status):
+                transaction.on_commit(lambda: after_success(review))
             record_callback_outcome("replayed")
             return "replayed"
+
+        if human_owns_projection(source, status):
+            return _record_superseded(review)
 
         if review.status == STATUS_READY:
             logger.info("CURIE callback conflict trigger_id=%s", review.trigger_id)
@@ -158,10 +165,6 @@ def apply_callback(review: CurieReview, raw_payload: dict, *, after_success=None
             logger.info("CURIE callback stored failure trigger_id=%s", review.trigger_id)
             record_callback_outcome("failed", requested_at=review.requested_at)
             return "failed"
-
-        source, status = _feedback_source_and_status(submission)
-        if human_owns_projection(source, status):
-            return _record_superseded(review)
 
         if not can_apply_curie_projection(
             review_status=review.status,

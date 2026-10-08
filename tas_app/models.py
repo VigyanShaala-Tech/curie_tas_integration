@@ -608,7 +608,7 @@ class CurieReview(TimeStampedModel):
     field_feedback = models.JSONField(
         default=list,
         blank=True,
-        help_text="Per-field CURIE comments and criterion scores. Empty on gate failure.",
+        help_text="Per-field CURIE comments and criterion scores for every successful review.",
     )
     overall_feedback = models.TextField(blank=True, default="")
     error_detail = models.TextField(
@@ -618,6 +618,11 @@ class CurieReview(TimeStampedModel):
     )
     requested_at = models.DateTimeField(auto_now_add=True)
     completed_at = models.DateTimeField(null=True, blank=True)
+    grade_published_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the accepted CURIE grade was successfully written to the LMS grade store.",
+    )
     trigger_payload = models.JSONField(
         default=dict,
         blank=True,
@@ -630,8 +635,8 @@ class CurieReview(TimeStampedModel):
         ordering = ["-requested_at"]
         unique_together = [("submission", "submission_version_number")]
         indexes = [
-            models.Index(fields=["submission", "status"]),
-            models.Index(fields=["status", "requested_at"]),
+            models.Index(fields=["submission", "status"], name="tas_app_cur_submiss_7e4f1a_idx"),
+            models.Index(fields=["status", "requested_at"], name="tas_app_cur_status_4c8b2d_idx"),
         ]
 
     def __str__(self):
