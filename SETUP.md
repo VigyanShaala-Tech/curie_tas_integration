@@ -68,6 +68,16 @@ tutor local exec lms python /openedx/edx-platform/manage.py lms showmigrations t
 curl -o /dev/null -w "%{http_code}" http://local.openedx.io/tas/api/v1/template-types/
 ```
 
+### CURIE trigger endpoint
+
+The plugin defaults `CURIE_TRIGGER_URL` to:
+
+```text
+http://13.204.198.16:3001/api/v1/assessment-reviews/
+```
+
+A deployment-level Django setting can override this exact URL. Authentication and callback settings remain environment-specific and must not be committed.
+
 ## Making Code Changes
 
 Since the package is installed in editable mode (`-e`), Python code changes are reflected immediately — no reinstall needed. However:
