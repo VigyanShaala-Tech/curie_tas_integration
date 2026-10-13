@@ -4,17 +4,18 @@ import os
 from datetime import datetime
 
 import pkg_resources
-from django.template import Context
 from django.conf import settings
+from django.contrib.auth.models import User
+from django.db import transaction
+from django.template import Context
+from lms.djangoapps.courseware.access import has_access
+from tas_app.curie.transitions import is_assignment_type_eligible
+from tas_app.models import Rubric, Submission, Template, TemplateBlock, TemplateType
+from tas_app.utils.student_feedback import strip_category_headings_from_comment
 from xblock.core import XBlock
 from xblock.fields import Float, Scope, String
 from xblock.fragment import Fragment
 from xblockutils.resources import ResourceLoader
-
-from django.contrib.auth.models import User
-from lms.djangoapps.courseware.access import has_access
-from tas_app.models import TemplateBlock, Template, TemplateType, Submission, Rubric
-from tas_app.utils.student_feedback import strip_category_headings_from_comment
 
 
 def _(text):
@@ -22,6 +23,27 @@ def _(text):
     Dummy ugettext.
     """
     return text
+
+
+@transaction.atomic
+def _upsert_template_block(*, usage_key, course_key, template, display_name, instructions, rubric, assigned_by):
+    """Persist Studio settings and opt new eligible assignments into CURIE."""
+    block, created = TemplateBlock.objects.update_or_create(
+        usage_key=usage_key,
+        course_key=course_key,
+        defaults={
+            "template": template,
+            "display_name": display_name,
+            "instructions": instructions,
+            "rubric": rubric,
+            "assigned_by": assigned_by,
+            "sort_order": 0,
+        },
+    )
+    if created and is_assignment_type_eligible(template.template_type.slug):
+        block.curie_enabled = True
+        block.save(update_fields=["curie_enabled", "modified"])
+    return block
 
 
 @XBlock.needs("i18n")  # pylint: disable=too-many-ancestors
@@ -290,17 +312,14 @@ class TASXBlock(XBlock):
                 return {"result": "error", "message": "Selected rubric not found."}
 
         # Persist changes to TemplateBlock, creating or updating as needed.
-        TemplateBlock.objects.update_or_create(
-            usage_key=str(self.location),  # XBlock instance usage key
+        _upsert_template_block(
+            usage_key=str(self.location),
             course_key=str(self.course_id),
-            defaults={
-                "template": template_obj,
-                "display_name": self.display_name,
-                "instructions": self.instructions,
-                "rubric": rubric_obj,
-                "assigned_by": user,
-                "sort_order": 0,
-            },
+            template=template_obj,
+            display_name=self.display_name,
+            instructions=self.instructions,
+            rubric=rubric_obj,
+            assigned_by=user,
         )
 
         return {"result": "success"}
