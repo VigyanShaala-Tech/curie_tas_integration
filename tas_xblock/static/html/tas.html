@@ -20,8 +20,9 @@
                 {% elif assigment_status == "submitted" %}
                     <div class="assigment-status-message submitted">
                         <p><b>{% trans "Assignment Status" %}:</b> {% trans "Under Review" %}</p>
-                        <p>{% trans "This assignment is Under Review and is waiting for grading." %}</p>
+                        <p>{% trans "Your assignment has been submitted. Select View Assignment to check its review status." %}</p>
                     </div>
+                    <a href="{{ assigment_submission_url }}" id="submit_assignment">{% trans "View Assignment" %}</a>
                 {% elif assigment_status == "draft" %}
                     <div class="assigment-status-message draft">
                         <p><b>{% trans "Assignment Status" %}:</b> {% trans "Draft" %}</p>

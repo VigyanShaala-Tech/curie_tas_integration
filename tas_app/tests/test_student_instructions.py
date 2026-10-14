@@ -76,6 +76,17 @@ class StudentInstructionsCssTest(SimpleTestCase):
 
 
 class StudentInstructionsTemplateTest(SimpleTestCase):
+    def test_submitted_state_links_to_review_status(self):
+        html = _render_tas_html(MULTILINE_INSTRUCTIONS, "submitted")
+
+        self.assertIn("Assignment Status:</b> Under Review", html)
+        self.assertIn(
+            "Your assignment has been submitted. "
+            "Select View Assignment to check its review status.",
+            html,
+        )
+        self.assertIn('<a href="/submit" id="submit_assignment">View Assignment</a>', html)
+
     def test_multiline_plain_text_preserved_in_all_display_states(self):
         for status in INSTRUCTION_STATUSES:
             with self.subTest(status=status):

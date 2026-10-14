@@ -18,6 +18,8 @@ APP_ROOT = path(__file__).abspath().dirname().dirname()  # /blah/blah/blah/.../e
 REPO_ROOT = APP_ROOT.dirname()  # /blah/blah/blah/.../example-digital-learning-openedx
 TEMPLATES_DIR = APP_ROOT / "templates"
 
+DEFAULT_CURIE_TRIGGER_URL = "http://13.204.198.16:3001/api/v1/assessment-reviews/"
+
 
 def plugin_settings(settings):
     """
@@ -25,7 +27,7 @@ def plugin_settings(settings):
     """
 
     settings.CURIE_ENABLED = getattr(settings, "CURIE_ENABLED", False)
-    settings.CURIE_TRIGGER_URL = getattr(settings, "CURIE_TRIGGER_URL", "")
+    settings.CURIE_TRIGGER_URL = getattr(settings, "CURIE_TRIGGER_URL", DEFAULT_CURIE_TRIGGER_URL)
     settings.CURIE_CALLBACK_BASE_URL = getattr(settings, "CURIE_CALLBACK_BASE_URL", "")
     settings.CURIE_AUTH_HEADER_NAME = getattr(settings, "CURIE_AUTH_HEADER_NAME", "")
     settings.CURIE_SHARED_SECRET = getattr(settings, "CURIE_SHARED_SECRET", "")
