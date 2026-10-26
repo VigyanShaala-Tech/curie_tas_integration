@@ -593,7 +593,13 @@ class LearnerSubmissionsAPIView(APIView):
                     submission_id=OuterRef("pk"),
                     submission_version_number=OuterRef("version_number"),
                 ).values("status")[:1]
-            )
+            ),
+            curie_publication_held=Subquery(
+                CurieReview.objects.filter(
+                    submission_id=OuterRef("pk"),
+                    submission_version_number=OuterRef("version_number"),
+                ).values("publication_held")[:1]
+            ),
         )
 
         # Use custom paginator for paginating results
@@ -632,6 +638,7 @@ class LearnerSubmissionsAPIView(APIView):
                     "curie_review_status": curie_fields["curie_review_status"],
                     "feedback_source": curie_fields["feedback_source"],
                     "instructor_form_locked": curie_fields["instructor_form_locked"],
+                    "awaiting_instructor_approval": curie_fields["awaiting_instructor_approval"],
                 }
             )
 

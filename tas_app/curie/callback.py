@@ -18,8 +18,8 @@ from tas_app.curie.constants import (
     VERDICT_ACCEPTED,
 )
 from tas_app.curie.metrics import record_callback_outcome
-from tas_app.curie.projection import apply_curie_success
-from tas_app.curie.settings import auth_header_name, shared_secret
+from tas_app.curie.projection import apply_curie_success, store_curie_success
+from tas_app.curie.settings import auth_header_name, auto_publish, shared_secret
 from tas_app.curie.transitions import can_apply_curie_projection, human_owns_projection
 from tas_app.curie.validation import CallbackValidationError, validate_callback_payload
 from tas_app.models import CurieReview, InstructorFeedback, Submission
@@ -28,6 +28,7 @@ logger = logging.getLogger(__name__)
 
 OUTCOME_HTTP_STATUS = {
     "applied": 200,
+    "held": 200,
     "replayed": 200,
     "superseded": 200,
     "failed": 200,
@@ -138,7 +139,7 @@ def apply_callback(review: CurieReview, raw_payload: dict, *, after_success=None
         source, status = _feedback_source_and_status(submission)
 
         if _success_matches_stored(review, payload):
-            if after_success is not None and not human_owns_projection(source, status):
+            if after_success is not None and source == InstructorFeedback.SOURCE_CURIE:
                 transaction.on_commit(lambda: after_success(review))
             record_callback_outcome("replayed")
             return "replayed"
@@ -181,19 +182,25 @@ def apply_callback(review: CurieReview, raw_payload: dict, *, after_success=None
             if after_success is not None:
                 after_success(review)
 
-        apply_curie_success(
-            review,
-            submission,
-            payload,
-            after_commit=_after if after_success else None,
-        )
+        if auto_publish():
+            apply_curie_success(
+                review,
+                submission,
+                payload,
+                after_commit=_after if after_success else None,
+            )
+            outcome = "applied"
+        else:
+            store_curie_success(review, payload, hold_for_instructor=True)
+            outcome = "held"
         logger.info(
-            "CURIE callback applied trigger_id=%s verdict=%s",
+            "CURIE callback %s trigger_id=%s verdict=%s",
+            outcome,
             review.trigger_id,
             review.verdict,
         )
-        record_callback_outcome("applied", requested_at=review.requested_at)
-        return "applied"
+        record_callback_outcome(outcome, requested_at=review.requested_at)
+        return outcome
 
 
 def should_push_grade(review: CurieReview) -> bool:

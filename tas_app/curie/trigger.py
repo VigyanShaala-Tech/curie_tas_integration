@@ -25,6 +25,11 @@ from tas_app.models import CurieReview, Submission
 
 logger = logging.getLogger(__name__)
 
+SWOT_ASSIGNMENT_TYPE = "swot"
+SWOT_CONTRIBUTION_FIELD_ID = "contribution"
+SWOT_REFLECTION_FIELD_ID = "reflection"
+SWOT_COMBINED_REFLECTION_LABEL = "Reflection: Broader Contribution & Personal Development"
+
 
 class RetryableTriggerError(Exception):
     """Connection, timeout, 429, or 5xx — TAS retries with the same trigger_id."""
@@ -44,6 +49,21 @@ def _field_answer(form_data: dict[str, Any], field_id: str) -> str:
     return value if isinstance(value, str) else str(value)
 
 
+def _combine_swot_reflection(payload: dict[str, dict[str, str]]) -> None:
+    """Collapse the two stored SWOT reflection answers into one CURIE component."""
+    if not {SWOT_CONTRIBUTION_FIELD_ID, SWOT_REFLECTION_FIELD_ID}.issubset(payload):
+        return
+    contribution = payload.pop(SWOT_CONTRIBUTION_FIELD_ID)["answer"]
+    reflection = payload[SWOT_REFLECTION_FIELD_ID]["answer"]
+    payload[SWOT_REFLECTION_FIELD_ID] = {
+        "label": SWOT_COMBINED_REFLECTION_LABEL,
+        "answer": (
+            f"Contribution to Something Larger:\n{contribution}\n\n"
+            f"Personal Development Reflection:\n{reflection}"
+        ),
+    }
+
+
 def build_trigger_form_data(submission: Submission) -> dict[str, dict[str, str]]:
     """Map TAS string answers onto the CURIE {label, answer} objects."""
     template = submission.template_block.template
@@ -59,6 +79,8 @@ def build_trigger_form_data(submission: Submission) -> dict[str, dict[str, str]]
             "answer": _field_answer(form_data, field_id),
         }
     if payload:
+        if template.template_type.slug == SWOT_ASSIGNMENT_TYPE:
+            _combine_swot_reflection(payload)
         return payload
     for field_id, value in form_data.items():
         payload[str(field_id)] = {

@@ -19,7 +19,7 @@ from tas_app.curie.scoring import (
 from tas_app.curie.settings import slow_review_seconds
 from tas_app.curie.timeout import is_slow_pending, persist_timeout_if_due
 from tas_app.curie.transitions import attempt_count, instructor_form_locked, is_at_attempt_cap
-from tas_app.models import CurieReview, Submission
+from tas_app.models import CurieReview, InstructorFeedback, Submission
 
 
 def reviews_for(submission: Submission) -> list[CurieReview]:
@@ -66,6 +66,21 @@ def _is_slow(review: CurieReview, now: datetime) -> bool:
     )
 
 
+def awaiting_instructor_approval(review: CurieReview | None) -> bool:
+    """A ready current review without a compatibility projection is still private."""
+    if (
+        review is None
+        or review.status != CurieReview.STATUS_READY
+        or not review.publication_held
+    ):
+        return False
+    try:
+        source = review.submission.feedback.source
+    except InstructorFeedback.DoesNotExist:
+        source = None
+    return source is None and review.submission.status == Submission.STATUS_SUBMITTED
+
+
 def learner_field_entries(field_feedback: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
     entries = []
     for item in field_feedback or []:
@@ -100,9 +115,11 @@ def staff_field_entries(field_feedback: list[dict[str, Any]] | None) -> list[dic
 
 def learner_review_payload(review: CurieReview, *, now: datetime | None = None) -> dict[str, Any]:
     now = now or timezone.now()
-    ready = review.status == CurieReview.STATUS_READY
+    awaiting_approval = awaiting_instructor_approval(review)
+    ready = review.status == CurieReview.STATUS_READY and not awaiting_approval
     return {
-        "status": review.status,
+        "status": CurieReview.STATUS_PENDING_EVALUATION if awaiting_approval else review.status,
+        "awaiting_instructor_approval": awaiting_approval,
         "verdict": review.verdict if ready else None,
         "overall_feedback": review.overall_feedback if ready else "",
         "field_feedback": learner_field_entries(review.field_feedback) if ready else [],
@@ -122,6 +139,10 @@ def staff_review_payload(review: CurieReview, *, now: datetime | None = None) ->
     payload = learner_review_payload(review, now=now)
     payload.update(
         {
+            "status": review.status,
+            "verdict": review.verdict if ready else None,
+            "overall_feedback": review.overall_feedback if ready else "",
+            "star_rating": star_rating(review.field_feedback) if ready else None,
             "trigger_id": str(review.trigger_id),
             "gate_criterion_scores": gate if ready else [],
             "gate_score": average_criterion_scores(gate) if ready and gate else None,
@@ -129,6 +150,7 @@ def staff_review_payload(review: CurieReview, *, now: datetime | None = None) ->
             "field_feedback": staff_field_entries(review.field_feedback) if ready else [],
             "error_detail": review.error_detail if review.status == CurieReview.STATUS_FAILED else "",
             "instructor_form_locked": instructor_form_locked(review_status=review.status),
+            "awaiting_instructor_approval": awaiting_instructor_approval(review),
         }
     )
     return payload
@@ -140,7 +162,12 @@ def submission_curie_fields(submission: Submission, *, now: datetime | None = No
     current = resolve_review_for_read(submission, now=now)
     reviews = reviews_for(submission)
     return {
-        "curie_review_status": current.status if current else None,
+        "curie_review_status": (
+            CurieReview.STATUS_PENDING_EVALUATION
+            if awaiting_instructor_approval(current)
+            else current.status if current else None
+        ),
+        "awaiting_instructor_approval": awaiting_instructor_approval(current),
         "is_slow_pending": _is_slow(current, now) if current else False,
         "submission_attempt_count": attempt_count(reviews),
         "at_max_attempts": is_at_attempt_cap(reviews),
@@ -154,9 +181,11 @@ def history_curie_summaries(submission: Submission, *, now: datetime | None = No
         resolved = persist_timeout_if_due(review, now=now)
         if resolved is None:
             continue
-        ready = resolved.status == CurieReview.STATUS_READY
+        awaiting_approval = awaiting_instructor_approval(resolved)
+        ready = resolved.status == CurieReview.STATUS_READY and not awaiting_approval
         summaries[resolved.submission_version_number] = {
-            "status": resolved.status,
+            "status": CurieReview.STATUS_PENDING_EVALUATION if awaiting_approval else resolved.status,
+            "awaiting_instructor_approval": awaiting_approval,
             "verdict": resolved.verdict if ready else None,
             "star_rating": star_rating(resolved.field_feedback) if ready else None,
         }
@@ -171,11 +200,20 @@ def attempt_numbers_for_versions(version_numbers: list[int]) -> dict[int, int]:
 
 def instructor_queue_curie_fields(submission: Submission) -> dict[str, Any]:
     status = getattr(submission, "curie_review_status", None)
+    held = getattr(submission, "curie_publication_held", None)
     if status is None:
         review = current_review(submission)
         status = review.status if review else None
+        held = review.publication_held if review else False
+    source = feedback_source_for(submission)
     return {
         "curie_review_status": status,
-        "feedback_source": feedback_source_for(submission),
+        "feedback_source": source,
         "instructor_form_locked": instructor_form_locked(review_status=status),
+        "awaiting_instructor_approval": bool(
+            held
+            and status == CurieReview.STATUS_READY
+            and source is None
+            and submission.status == Submission.STATUS_SUBMITTED
+        ),
     }

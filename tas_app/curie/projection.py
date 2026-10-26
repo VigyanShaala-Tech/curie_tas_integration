@@ -73,23 +73,42 @@ def apply_feedback(
 
 
 def apply_curie_success(review, submission: Submission, payload: dict[str, Any], *, after_commit=None):
-    """Write CurieReview success fields and the one-way InstructorFeedback projection."""
+    """Store CURIE success fields and immediately publish their projection."""
+    store_curie_success(review, payload)
+    return publish_curie_review(review, submission, after_commit=after_commit)
+
+
+def store_curie_success(review, payload: dict[str, Any], *, hold_for_instructor: bool = False):
+    """Store a validated CURIE result without making it learner-visible."""
     verdict = compute_verdict(
         payload["gate_criterion_scores"],
         payload["field_feedback"],
         threshold=component_pass_threshold(),
     )
-    projection = build_curie_projection(payload["field_feedback"], payload["overall_feedback"], verdict)
-    now = timezone.now()
+    review.status = STATUS_READY
+    review.verdict = verdict
+    review.gate_criterion_scores = payload["gate_criterion_scores"]
+    review.field_feedback = payload["field_feedback"]
+    review.overall_feedback = payload["overall_feedback"]
+    review.error_detail = ""
+    review.completed_at = timezone.now()
+    review.publication_held = hold_for_instructor
+    review.save()
+    return review
+
+
+def publish_curie_review(review, submission: Submission, *, after_commit=None):
+    """Publish a stored ready review through the existing compatibility projection."""
+    if review.status != STATUS_READY or not review.verdict:
+        raise ValueError("Only a ready CURIE review can be published.")
+    projection = build_curie_projection(
+        review.field_feedback,
+        review.overall_feedback,
+        review.verdict,
+    )
     with transaction.atomic():
-        review.status = STATUS_READY
-        review.verdict = verdict
-        review.gate_criterion_scores = payload["gate_criterion_scores"]
-        review.field_feedback = payload["field_feedback"]
-        review.overall_feedback = payload["overall_feedback"]
-        review.error_detail = ""
-        review.completed_at = now
-        review.save()
+        review.publication_held = False
+        review.save(update_fields=["publication_held", "modified"])
         apply_feedback(
             submission,
             source=SOURCE_CURIE,

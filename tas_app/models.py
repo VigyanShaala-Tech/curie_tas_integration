@@ -623,6 +623,10 @@ class CurieReview(TimeStampedModel):
         blank=True,
         help_text="When the accepted CURIE grade was successfully written to the LMS grade store.",
     )
+    publication_held = models.BooleanField(
+        default=False,
+        help_text="Successful review is awaiting instructor publication and is private to staff.",
+    )
     trigger_payload = models.JSONField(
         default=dict,
         blank=True,

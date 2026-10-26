@@ -12,8 +12,12 @@ from tas_app.curie.constants import MAX_SUBMISSION_ATTEMPTS, SOURCE_CURIE, SOURC
 from tas_app.curie.submit import CurieSubmitError, submit_student_submission
 from tas_app.models import CurieReview, STATUS_PENDING, Submission, SubmissionVersion
 from tas_app.tests.test_curie_slice import SLICE_SETTINGS, _swot_submission
-from tas_app.tests.test_models import InstructorFeedbackFactory
-from tas_app.views import StudentSubmissionSubmitAPIView
+from tas_app.tests.test_models import InstructorFeedbackFactory, UserFactory
+from tas_app.views import (
+    InstructorFeedbackAPIView,
+    StudentSubmissionDetailAPIView,
+    StudentSubmissionSubmitAPIView,
+)
 
 
 def _post_submit(submission, form_data=None):
@@ -29,6 +33,26 @@ def _post_submit(submission, form_data=None):
     force_authenticate(request, user=submission.student)
     with patch("tas_app.curie.submit.generate_submission_pdf"):
         return StudentSubmissionSubmitAPIView.as_view()(request, pk=submission.pk)
+
+
+def _reopen(submission):
+    request = APIRequestFactory().patch(
+        f"/tas/api/v1/student-submission/{submission.pk}/",
+        {"action": "reopen"},
+        format="json",
+    )
+    force_authenticate(request, user=submission.student)
+    return StudentSubmissionDetailAPIView.as_view()(request, pk=submission.pk)
+
+
+def _post_human_feedback(submission, instructor, body):
+    request = APIRequestFactory().post(
+        f"/tas/api/v1/submissions/{submission.pk}/feedback/",
+        body,
+        format="json",
+    )
+    force_authenticate(request, user=instructor)
+    return InstructorFeedbackAPIView.as_view()(request, pk=submission.pk)
 
 
 @override_settings(**SLICE_SETTINGS)
@@ -138,12 +162,67 @@ class CurieAtomicSubmitTest(TestCase):
         submission.refresh_from_db()
         self.assertEqual(submission.version_number, 2)
 
-    def test_human_owned_draft_cannot_curie_submit(self):
+    def test_human_owned_draft_resubmits_to_legacy_instructor_queue(self):
         submission = _swot_submission(status=Submission.STATUS_DRAFT, version_number=3)
-        InstructorFeedbackFactory(submission=submission, source=SOURCE_HUMAN, status=STATUS_PENDING)
+        feedback = InstructorFeedbackFactory(
+            submission=submission,
+            source=SOURCE_HUMAN,
+            status=STATUS_PENDING,
+        )
         response = _post_submit(submission, {"goal": "draft after human reopen"})
-        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.status_code, 200)
         self.assertEqual(CurieReview.objects.filter(submission=submission).count(), 0)
+        submission.refresh_from_db()
+        feedback.refresh_from_db()
+        self.assertEqual(submission.status, Submission.STATUS_SUBMITTED)
+        self.assertEqual(submission.version_number, 4)
+        self.assertEqual(feedback.source, SOURCE_HUMAN)
+        self.assertEqual(feedback.status, STATUS_PENDING)
+        self.assertTrue(
+            SubmissionVersion.objects.filter(
+                submission=submission,
+                version_number=4,
+            ).exists()
+        )
+
+    def test_human_rejection_reopen_and_resubmit_preserves_history_without_curie(self):
+        submission = _swot_submission(status=Submission.STATUS_SUBMITTED, version_number=2)
+        submission.create_version_snapshot()
+        instructor = UserFactory(is_staff=True, is_superuser=True)
+
+        reject_response = _post_human_feedback(
+            submission,
+            instructor,
+            {
+                "rubrics": [{"title": "Quality", "score": 3}],
+                "comment": "Please revise this attempt.",
+                "status": "rejected",
+            },
+        )
+        self.assertEqual(reject_response.status_code, 200)
+        submission.refresh_from_db()
+        feedback = submission.feedback
+        self.assertEqual(submission.status, Submission.STATUS_REJECTED)
+        self.assertEqual(feedback.source, SOURCE_HUMAN)
+        self.assertEqual(feedback.status, "rejected")
+
+        reopen_response = _reopen(submission)
+        self.assertEqual(reopen_response.status_code, 200)
+        feedback.refresh_from_db()
+        self.assertEqual(feedback.status, STATUS_PENDING)
+
+        submit_response = _post_submit(submission, {"goal": "revised human attempt"})
+        self.assertEqual(submit_response.status_code, 200)
+        submission.refresh_from_db()
+        feedback.refresh_from_db()
+        self.assertEqual(submission.status, Submission.STATUS_SUBMITTED)
+        self.assertEqual(submission.version_number, 3)
+        self.assertEqual(feedback.source, SOURCE_HUMAN)
+        self.assertEqual(feedback.status, STATUS_PENDING)
+        self.assertFalse(CurieReview.objects.filter(submission=submission).exists())
+        previous_feedback = feedback.tas_instructor_feedback_versions.get()
+        self.assertEqual(previous_feedback.status, "rejected")
+        self.assertEqual(previous_feedback.submission_version.version_number, 2)
 
     def test_initial_curie_submit_requires_form_data(self):
         submission = _swot_submission()

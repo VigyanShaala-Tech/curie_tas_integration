@@ -26,7 +26,7 @@ except ImportError:  # pragma: no cover - unit hosts without edx-django-utils
         return None
 
 CALLBACK_OUTCOMES = frozenset(
-    {"applied", "replayed", "conflict", "stale", "superseded", "failed"}
+    {"applied", "held", "replayed", "conflict", "stale", "superseded", "failed"}
 )
 
 
@@ -68,7 +68,7 @@ def record_callback_outcome(outcome: str, *, requested_at: datetime | None = Non
     name = outcome if outcome in CALLBACK_OUTCOMES else "unknown"
     _inc(f"curie.callback.{name}")
     _attribute("curie.callback_outcome", name)
-    if requested_at is not None and name in {"applied", "failed"}:
+    if requested_at is not None and name in {"applied", "held", "failed"}:
         record_callback_latency(requested_at)
 
 

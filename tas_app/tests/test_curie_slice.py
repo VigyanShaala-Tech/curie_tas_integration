@@ -6,7 +6,12 @@ from django.test import TestCase, override_settings
 from rest_framework.test import APIRequestFactory, force_authenticate
 
 from tas_app.curie.callback import apply_callback
-from tas_app.curie.trigger import build_trigger_form_data, build_trigger_payload, maybe_start_curie_review
+from tas_app.curie.trigger import (
+    SWOT_COMBINED_REFLECTION_LABEL,
+    build_trigger_form_data,
+    build_trigger_payload,
+    maybe_start_curie_review,
+)
 from tas_app.models import CurieReview, InstructorFeedback, Submission
 from tas_app.tests.test_models import SubmissionFactory, TemplateBlockFactory, TemplateFactory, TemplateTypeFactory
 from tas_app.views import CurieReviewCallbackAPIView, StudentSubmissionSubmitAPIView
@@ -17,6 +22,32 @@ SWOT_FIELDS = [
     {"id": "strength", "label": "Strengths (Internal)", "active": True},
     {"id": "contribution", "label": "Contribution to Something Larger (reflection)", "active": True},
 ]
+
+REVISED_SWOT_FIELDS = [
+    {"id": "goal", "label": "Goal Definition - Short-Term STEM Goal", "active": True},
+    {"id": "strength", "label": "Strengths (Internal)", "active": True},
+    {"id": "weakness", "label": "Weaknesses (Internal)", "active": True},
+    {"id": "opportunity", "label": "Opportunities (External)", "active": True},
+    {"id": "threat", "label": "Threats (External)", "active": True},
+    {"id": "action_plans", "label": "3 Action Plans (Using SWOT Combinations)", "active": True},
+    {
+        "id": "contribution",
+        "label": "Contribution to Something Larger (reflection)",
+        "active": True,
+    },
+    {"id": "reflection", "label": "Personal Development Reflection", "active": True},
+]
+
+REVISED_SWOT_FORM_DATA = {
+    "goal": "Complete a field research project.",
+    "strength": "I analyse evidence carefully.",
+    "weakness": "I hesitate when presenting.",
+    "opportunity": "A local lab offers mentoring.",
+    "threat": "Travel time may limit participation.",
+    "action_plans": "Use mentoring, practise presentations, and plan travel.",
+    "contribution": "I will share the resulting dataset with local schools.",
+    "reflection": "I will develop technical, mental, and personal resilience.",
+}
 
 
 def _scores(values):
@@ -91,6 +122,41 @@ def _swot_submission(**kwargs):
     return SubmissionFactory(**defaults)
 
 
+def _revised_swot_submission(**kwargs):
+    submission = _swot_submission(**kwargs)
+    template = submission.template_block.template
+    template.fields = REVISED_SWOT_FIELDS
+    template.save(update_fields=["fields", "modified"])
+    submission.form_data = REVISED_SWOT_FORM_DATA
+    submission.save(update_fields=["form_data", "modified"])
+    return submission
+
+
+def _revised_success_payload(review):
+    if not review.trigger_payload:
+        review.trigger_payload = build_trigger_payload(review, review.submission)
+        review.save(update_fields=["trigger_payload", "modified"])
+    field_ids = list(review.trigger_payload["form_data"])
+    return {
+        "trigger_id": str(review.trigger_id),
+        "user_id": str(review.submission.student_id),
+        "submission_id": str(review.submission_id),
+        "submission_version_number": review.submission_version_number,
+        "result": "success",
+        "gate_criterion_scores": _scores((9, 8, 9)),
+        "field_feedback": [
+            {
+                "field_id": field_id,
+                "weight": 2 if field_id == "action_plans" else 1,
+                "comment": f"Feedback for {field_id}.",
+                "criterion_scores": _scores((9, 8, 9)),
+            }
+            for field_id in field_ids
+        ],
+        "overall_feedback": "Strong submission overall.",
+    }
+
+
 @override_settings(**SLICE_SETTINGS)
 class CurieTriggerPayloadTest(TestCase):
     def test_form_data_uses_label_and_answer_objects(self):
@@ -104,6 +170,35 @@ class CurieTriggerPayloadTest(TestCase):
             },
         )
         self.assertEqual(payload["contribution"]["answer"], "I will share course notes with my peers.")
+
+    def test_swot_combines_final_two_answers_into_one_reflection_component(self):
+        submission = _revised_swot_submission()
+
+        payload = build_trigger_form_data(submission)
+
+        self.assertEqual(
+            list(payload),
+            ["goal", "strength", "weakness", "opportunity", "threat", "action_plans", "reflection"],
+        )
+        self.assertNotIn("contribution", payload)
+        self.assertEqual(payload["reflection"]["label"], SWOT_COMBINED_REFLECTION_LABEL)
+        self.assertEqual(
+            payload["reflection"]["answer"],
+            "Contribution to Something Larger:\n"
+            "I will share the resulting dataset with local schools.\n\n"
+            "Personal Development Reflection:\n"
+            "I will develop technical, mental, and personal resilience.",
+        )
+        submission.refresh_from_db()
+        self.assertEqual(len(submission.form_data), 8)
+        self.assertEqual(
+            submission.form_data["contribution"],
+            "I will share the resulting dataset with local schools.",
+        )
+        self.assertEqual(
+            submission.form_data["reflection"],
+            "I will develop technical, mental, and personal resilience.",
+        )
 
     def test_trigger_payload_has_contract_fields_only(self):
         submission = _swot_submission(status=Submission.STATUS_SUBMITTED, version_number=2)
@@ -189,6 +284,24 @@ class CurieCallbackViewTest(TestCase):
         self.assertEqual(feedback.status, "approved")
         self.assertEqual(submission.status, Submission.STATUS_APPROVED)
         self.assertIn("Strong submission overall", feedback.comment)
+
+    def test_revised_swot_callback_accepts_one_combined_reflection_row(self):
+        submission = _revised_swot_submission(status=Submission.STATUS_SUBMITTED, version_number=2)
+        review = CurieReview.objects.create(submission=submission, submission_version_number=2)
+        payload = _revised_success_payload(review)
+
+        response = self._post(review.trigger_id, payload)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["status"], "applied")
+        review.refresh_from_db()
+        self.assertEqual(review.status, CurieReview.STATUS_READY)
+        self.assertEqual(len(review.field_feedback), 7)
+        self.assertEqual(
+            [item["field_id"] for item in review.field_feedback],
+            ["goal", "strength", "weakness", "opportunity", "threat", "action_plans", "reflection"],
+        )
+        self.assertNotIn("contribution", [item["field_id"] for item in review.field_feedback])
 
     def test_gate_failure_projects_feedback_as_rejected(self):
         submission = _swot_submission(status=Submission.STATUS_SUBMITTED, version_number=2)

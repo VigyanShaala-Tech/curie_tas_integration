@@ -155,6 +155,14 @@ def submit_student_submission(
         except Submission.DoesNotExist:
             raise
 
+        if (
+            _is_curie_path(submission)
+            and human_owns_projection(_feedback_source(submission))
+            and submission.status == Submission.STATUS_DRAFT
+        ):
+            # A human-rejected submission that the learner explicitly reopened
+            # remains human-owned and returns to the legacy instructor queue.
+            return _legacy_finalize(submission, form_data)
         if _is_curie_path(submission):
             return _curie_finalize(submission, form_data, request=request)
         return _legacy_finalize(submission, form_data)

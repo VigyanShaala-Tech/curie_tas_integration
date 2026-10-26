@@ -26,6 +26,51 @@ class TemplateTypeSerializer(serializers.ModelSerializer):
 class TemplateSerializer(serializers.ModelSerializer):
     """Serializer for Template model."""
 
+    def validate_fields(self, value):
+        """Validate optional learner-form structure without changing legacy fields."""
+        if not isinstance(value, list):
+            raise serializers.ValidationError("Fields must be a list.")
+
+        section_styles = {}
+        for index, field in enumerate(value):
+            if not isinstance(field, dict):
+                raise serializers.ValidationError(f"Field {index + 1} must be an object.")
+            style = field.get("displayStyle", "cards")
+            if style not in {"cards", "table", "stages"}:
+                raise serializers.ValidationError(f"Field {index + 1} has an invalid displayStyle.")
+            section = field.get("section", "")
+            if not isinstance(section, str):
+                raise serializers.ValidationError(f"Field {index + 1} section must be text.")
+            for metadata_key, metadata_label in (
+                ("sectionInstruction", "sectionInstruction"),
+                ("guidance", "guidance"),
+            ):
+                if metadata_key in field and not isinstance(field[metadata_key], str):
+                    raise serializers.ValidationError(
+                        f"Field {index + 1} {metadata_label} must be text."
+                    )
+            section_key = " ".join(section.split()).casefold()
+            if section_key:
+                prior_style = section_styles.setdefault(section_key, style)
+                if prior_style != style:
+                    raise serializers.ValidationError(f'Section "{section.strip()}" must use one displayStyle.')
+            if style == "table" and (
+                not isinstance(field.get("tableRow"), str)
+                or not field["tableRow"].strip()
+                or not isinstance(field.get("tableColumn"), str)
+                or not field["tableColumn"].strip()
+            ):
+                raise serializers.ValidationError(f"Field {index + 1} needs tableRow and tableColumn.")
+            if style == "stages" and (
+                not isinstance(field.get("stage"), str)
+                or not field["stage"].strip()
+                or not isinstance(field.get("stageOrder"), int)
+                or isinstance(field.get("stageOrder"), bool)
+                or field["stageOrder"] < 1
+            ):
+                raise serializers.ValidationError(f"Field {index + 1} needs stage and a positive stageOrder.")
+        return value
+
     class Meta:
         model = Template
         fields = [
@@ -112,6 +157,7 @@ class StudentSubmissionResponseSerializer(serializers.ModelSerializer):
     pdf_url = serializers.SerializerMethodField()
     feedback = serializers.SerializerMethodField()
     curie_review_status = serializers.SerializerMethodField()
+    awaiting_instructor_approval = serializers.SerializerMethodField()
     is_slow_pending = serializers.SerializerMethodField()
     submission_attempt_count = serializers.SerializerMethodField()
     at_max_attempts = serializers.SerializerMethodField()
@@ -133,6 +179,7 @@ class StudentSubmissionResponseSerializer(serializers.ModelSerializer):
             "pdf_url",
             "feedback",
             "curie_review_status",
+            "awaiting_instructor_approval",
             "is_slow_pending",
             "submission_attempt_count",
             "at_max_attempts",
@@ -197,6 +244,9 @@ class StudentSubmissionResponseSerializer(serializers.ModelSerializer):
 
     def get_curie_review_status(self, obj):
         return self._curie_fields(obj)["curie_review_status"]
+
+    def get_awaiting_instructor_approval(self, obj):
+        return self._curie_fields(obj)["awaiting_instructor_approval"]
 
     def get_is_slow_pending(self, obj):
         return self._curie_fields(obj)["is_slow_pending"]
@@ -282,6 +332,7 @@ class SubmissionVersionSerializer(serializers.Serializer):
     download_url = serializers.SerializerMethodField()
     attempt_number = serializers.SerializerMethodField()
     curie_review_status = serializers.SerializerMethodField()
+    awaiting_instructor_approval = serializers.SerializerMethodField()
     feedback_source = serializers.SerializerMethodField()
     verdict = serializers.SerializerMethodField()
     star_rating = serializers.SerializerMethodField()
@@ -340,6 +391,9 @@ class SubmissionVersionSerializer(serializers.Serializer):
 
     def get_curie_review_status(self, obj):
         return self._curie_summary(obj).get("status")
+
+    def get_awaiting_instructor_approval(self, obj):
+        return bool(self._curie_summary(obj).get("awaiting_instructor_approval"))
 
     def get_feedback_source(self, obj):
         linked = self._latest_linked_feedback(obj)

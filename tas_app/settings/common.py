@@ -27,6 +27,7 @@ def plugin_settings(settings):
     """
 
     settings.CURIE_ENABLED = getattr(settings, "CURIE_ENABLED", False)
+    settings.CURIE_AUTO_PUBLISH = getattr(settings, "CURIE_AUTO_PUBLISH", True)
     settings.CURIE_TRIGGER_URL = getattr(settings, "CURIE_TRIGGER_URL", DEFAULT_CURIE_TRIGGER_URL)
     settings.CURIE_CALLBACK_BASE_URL = getattr(settings, "CURIE_CALLBACK_BASE_URL", "")
     settings.CURIE_AUTH_HEADER_NAME = getattr(settings, "CURIE_AUTH_HEADER_NAME", "")
