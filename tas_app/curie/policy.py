@@ -47,9 +47,21 @@ def is_submission_curie_eligible(submission: Submission) -> bool:
 
 def feedback_source_for(submission: Submission) -> str | None:
     try:
-        return submission.feedback.source
+        feedback = submission.feedback
     except InstructorFeedback.DoesNotExist:
         return None
+    if (
+        feedback.submission_version_number is not None
+        and feedback.submission_version_number != submission.version_number
+    ):
+        return None
+    return feedback.source
+
+
+def feedback_status_for(submission: Submission) -> str | None:
+    if feedback_source_for(submission) is None:
+        return None
+    return submission.feedback.status
 
 
 def current_review(submission: Submission, version_number: int | None = None):

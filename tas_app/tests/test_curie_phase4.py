@@ -422,6 +422,8 @@ class CurieHistoryReadApiTest(TestCase):
         self.assertEqual(row["curie_review_status"], CurieReview.STATUS_READY)
         self.assertEqual(row["feedback_source"], SOURCE_HUMAN)
         self.assertEqual(row["instructor_comment"], "Instructor override.")
+        self.assertIsNone(row["verdict"])
+        self.assertIsNone(row["star_rating"])
 
     def test_history_lookup_does_not_fan_out_one_query_per_attempt(self):
         def _count_for(attempt_count):
@@ -522,6 +524,51 @@ class CurieInstructorAdminReadApiTest(TestCase):
         self.assertIn("criterion_scores", response.data["curie_review"]["field_feedback"][0])
         self.assertEqual(response.data["curie_review"]["trigger_id"], str(pending.trigger_id))
         self.assertIsNotNone(response.data["curie_review"]["gate_score"])
+
+    def test_instructor_detail_labels_feedback_history_source_and_submission_version(self):
+        submission = _swot_submission(status=Submission.STATUS_APPROVED, version_number=4)
+        old_version = _pdf_version(submission, 2)
+        current_version = _pdf_version(submission, 4)
+        instructor = UserFactory()
+        feedback = InstructorFeedbackFactory(
+            submission=submission,
+            source=SOURCE_CURIE,
+            status=STATUS_APPROVED,
+            instructor=None,
+        )
+        InstructorFeedbackVersion.objects.create(
+            instructor_feedback=feedback,
+            submission_version=old_version,
+            version_number=1,
+            instructor=instructor,
+            comment="Please revise the evidence.",
+            status=STATUS_REJECTED,
+            rubrics=[],
+        )
+        InstructorFeedbackVersion.objects.create(
+            instructor_feedback=feedback,
+            submission_version=current_version,
+            version_number=2,
+            instructor=None,
+            comment="Current CURIE result.",
+            status=STATUS_APPROVED,
+            rubrics=[],
+        )
+
+        response = _auth(
+            LearnerSubmissionDetailAPIView.as_view(),
+            self.staff,
+            "get",
+            f"/tas/api/v1/submissions/{submission.pk}/",
+            pk=submission.pk,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        current, old = response.data["feedback"]["versions"]
+        self.assertEqual(current["source"], SOURCE_CURIE)
+        self.assertEqual(current["submission_version_number"], 4)
+        self.assertEqual(old["source"], SOURCE_HUMAN)
+        self.assertEqual(old["submission_version_number"], 2)
 
     def test_admin_diagnostics_endpoint_is_staff_only(self):
         submission = _swot_submission(status=Submission.STATUS_SUBMITTED, version_number=2)

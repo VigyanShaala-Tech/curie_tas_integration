@@ -102,6 +102,7 @@ class InstructorFeedbackFactory(factory.django.DjangoModelFactory):
     rubrics = [{"title": "Quality", "score": 8}]
     comment = "Solid work."
     status = STATUS_PENDING
+    submission_version_number = factory.LazyAttribute(lambda o: o.submission.version_number)
 
 
 class TemplateTypeModelTest(TestCase):

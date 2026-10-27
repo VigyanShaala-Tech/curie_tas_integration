@@ -614,14 +614,18 @@ class LearnerSubmissionsAPIView(APIView):
         # Build the summary response for each submission in the page
         results = []
         for sub in page_items:
-            try:
-                feedback_status = sub.feedback.status
-            except ObjectDoesNotExist:
-                feedback_status = None
             meta = metadata_fields_for_user(meta_by_user, sub.student_id)
             from tas_app.curie.reads import instructor_queue_curie_fields
 
             curie_fields = instructor_queue_curie_fields(sub)
+            try:
+                feedback_status = (
+                    sub.feedback.status
+                    if curie_fields["feedback_source"] is not None
+                    else None
+                )
+            except ObjectDoesNotExist:
+                feedback_status = None
             results.append(
                 {
                     "id": sub.id,
@@ -694,22 +698,51 @@ class LearnerSubmissionDetailAPIView(APIView):
         # Build absolute PDF URL if a file exists, else None
         pdf_url = request.build_absolute_uri(submission.pdf.url) if submission.pdf else None
 
-        # Include feedback + version history if present (OneToOne: submission.feedback)
+        # Include active feedback plus immutable history. A projection from an
+        # older attempt is history-only while the current attempt is in CURIE.
         feedback_data = None
         try:
             fb = submission.feedback
-            versions = list(
-                fb.tas_instructor_feedback_versions.order_by("-version_number").values(
-                    "version_number", "status", "comment", "rubrics", "created"
-                )
+            version_rows = fb.tas_instructor_feedback_versions.order_by("-version_number").values(
+                "version_number",
+                "status",
+                "comment",
+                "rubrics",
+                "created",
+                "instructor_id",
+                "submission_version__version_number",
             )
-            feedback_data = {
-                "status": fb.status,
-                "comment": fb.comment,
-                "rubrics": fb.rubrics,
-                "source": fb.source,
-                "versions": versions,
-            }
+            versions = [
+                {
+                    "version_number": row["version_number"],
+                    "status": row["status"],
+                    "comment": row["comment"],
+                    "rubrics": row["rubrics"],
+                    "created": row["created"],
+                    "source": (
+                        InstructorFeedback.SOURCE_HUMAN
+                        if row["instructor_id"] is not None
+                        else InstructorFeedback.SOURCE_CURIE
+                    ),
+                    "submission_version_number": row[
+                        "submission_version__version_number"
+                    ],
+                }
+                for row in version_rows
+            ]
+            from tas_app.curie.policy import feedback_source_for
+
+            active_source = feedback_source_for(submission)
+            feedback_data = {"versions": versions}
+            if active_source is not None:
+                feedback_data.update(
+                    {
+                        "status": fb.status,
+                        "comment": fb.comment,
+                        "rubrics": fb.rubrics,
+                        "source": active_source,
+                    }
+                )
         except ObjectDoesNotExist:
             pass
 
@@ -906,6 +939,7 @@ class InstructorFeedbackAPIView(APIView):
                         "rubrics": validated_data.get("rubrics", []),
                         "comment": validated_data.get("comment", ""),
                         "status": submission_status,
+                        "submission_version_number": submission.version_number,
                     },
                 )
                 feedback.create_version_snapshot()

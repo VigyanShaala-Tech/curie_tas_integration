@@ -60,6 +60,7 @@ def apply_feedback(
                 "rubrics": rubrics,
                 "comment": comment,
                 "status": status,
+                "submission_version_number": submission.version_number,
             },
         )
         if status in (STATUS_APPROVED, STATUS_REJECTED):

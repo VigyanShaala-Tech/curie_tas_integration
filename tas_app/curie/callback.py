@@ -18,6 +18,7 @@ from tas_app.curie.constants import (
     VERDICT_ACCEPTED,
 )
 from tas_app.curie.metrics import record_callback_outcome
+from tas_app.curie.policy import feedback_source_for, feedback_status_for
 from tas_app.curie.projection import apply_curie_success, store_curie_success
 from tas_app.curie.settings import auth_header_name, auto_publish, shared_secret
 from tas_app.curie.transitions import can_apply_curie_projection, human_owns_projection
@@ -59,11 +60,7 @@ def submitted_field_ids(review: CurieReview) -> list[str]:
 
 
 def _feedback_source_and_status(submission) -> tuple[str | None, str | None]:
-    try:
-        feedback = submission.feedback
-    except InstructorFeedback.DoesNotExist:
-        return None, None
-    return feedback.source, feedback.status
+    return feedback_source_for(submission), feedback_status_for(submission)
 
 
 def _success_matches_stored(review: CurieReview, payload: dict) -> bool:

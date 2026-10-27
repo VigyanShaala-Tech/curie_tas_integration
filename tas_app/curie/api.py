@@ -11,6 +11,7 @@ from rest_framework.views import APIView
 from edx_rest_framework_extensions.auth.jwt.authentication import JwtAuthentication
 
 from tas_app.curie.projection import publish_curie_review
+from tas_app.curie.policy import feedback_source_for
 from tas_app.curie.reads import learner_review_payload, resolve_review_for_read, staff_review_payload
 from tas_app.models import CurieReview, InstructorFeedback, Submission
 
@@ -118,10 +119,7 @@ class AdminCurieReviewAPIView(APIView):
                     curie_trigger_id=str(review.trigger_id),
                 )
 
-            try:
-                source = submission.feedback.source
-            except InstructorFeedback.DoesNotExist:
-                source = None
+            source = feedback_source_for(submission)
 
             if source == InstructorFeedback.SOURCE_HUMAN:
                 return Response(

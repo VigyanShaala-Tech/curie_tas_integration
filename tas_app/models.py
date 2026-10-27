@@ -445,6 +445,11 @@ class InstructorFeedback(TimeStampedModel):
         db_index=True,
         help_text="Who currently owns this compatibility projection: a human grader or CURIE.",
     )
+    submission_version_number = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text="Submission version to which this active feedback projection applies.",
+    )
 
     class Meta:
         verbose_name = "Instructor Feedback"

@@ -10,13 +10,7 @@ from django.utils import timezone
 
 from tas_app.curie.constants import MAX_SUBMISSION_ATTEMPTS
 from tas_app.curie.settings import curie_enabled, validate_curie_settings
-from tas_app.curie.transitions import (
-    attempt_count,
-    human_owns_projection,
-    is_at_attempt_cap,
-    is_curie_eligible,
-    legal_curie_resubmit,
-)
+from tas_app.curie.transitions import attempt_count, is_at_attempt_cap, is_curie_eligible, legal_curie_resubmit
 from tas_app.curie.trigger import enqueue_trigger
 from tas_app.models import CurieReview, InstructorFeedback, Submission
 from tas_app.pdf_generator import generate_submission_pdf
@@ -47,10 +41,9 @@ def _is_curie_path(submission: Submission) -> bool:
 
 
 def _feedback_source(submission: Submission) -> str | None:
-    try:
-        return submission.feedback.source
-    except InstructorFeedback.DoesNotExist:
-        return None
+    from tas_app.curie.policy import feedback_source_for
+
+    return feedback_source_for(submission)
 
 
 def _current_review(submission: Submission) -> CurieReview | None:
@@ -88,7 +81,7 @@ def _legacy_finalize(submission: Submission, form_data: Any) -> Submission:
 
 
 def _curie_conflict_message(submission: Submission, review_status: str | None, feedback_source: str | None) -> str:
-    if human_owns_projection(feedback_source):
+    if feedback_source == InstructorFeedback.SOURCE_HUMAN:
         return "CURIE reattempt is not available for human-graded submissions."
     if submission.status == Submission.STATUS_APPROVED:
         return "Accepted submissions cannot be resubmitted."
@@ -155,14 +148,6 @@ def submit_student_submission(
         except Submission.DoesNotExist:
             raise
 
-        if (
-            _is_curie_path(submission)
-            and human_owns_projection(_feedback_source(submission))
-            and submission.status == Submission.STATUS_DRAFT
-        ):
-            # A human-rejected submission that the learner explicitly reopened
-            # remains human-owned and returns to the legacy instructor queue.
-            return _legacy_finalize(submission, form_data)
         if _is_curie_path(submission):
             return _curie_finalize(submission, form_data, request=request)
         return _legacy_finalize(submission, form_data)

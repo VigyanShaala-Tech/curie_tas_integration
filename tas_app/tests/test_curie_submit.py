@@ -9,9 +9,10 @@ from django.test import TestCase, TransactionTestCase, override_settings
 from rest_framework.test import APIRequestFactory, force_authenticate
 
 from tas_app.curie.constants import MAX_SUBMISSION_ATTEMPTS, SOURCE_CURIE, SOURCE_HUMAN, STATUS_FAILED
+from tas_app.curie.callback import apply_callback
 from tas_app.curie.submit import CurieSubmitError, submit_student_submission
 from tas_app.models import CurieReview, STATUS_PENDING, Submission, SubmissionVersion
-from tas_app.tests.test_curie_slice import SLICE_SETTINGS, _swot_submission
+from tas_app.tests.test_curie_slice import SLICE_SETTINGS, _success_payload, _swot_submission
 from tas_app.tests.test_models import InstructorFeedbackFactory, UserFactory
 from tas_app.views import (
     InstructorFeedbackAPIView,
@@ -40,6 +41,14 @@ def _reopen(submission):
         f"/tas/api/v1/student-submission/{submission.pk}/",
         {"action": "reopen"},
         format="json",
+    )
+    force_authenticate(request, user=submission.student)
+    return StudentSubmissionDetailAPIView.as_view()(request, pk=submission.pk)
+
+
+def _get_submission(submission):
+    request = APIRequestFactory().get(
+        f"/tas/api/v1/student-submission/{submission.pk}/",
     )
     force_authenticate(request, user=submission.student)
     return StudentSubmissionDetailAPIView.as_view()(request, pk=submission.pk)
@@ -162,22 +171,34 @@ class CurieAtomicSubmitTest(TestCase):
         submission.refresh_from_db()
         self.assertEqual(submission.version_number, 2)
 
-    def test_human_owned_draft_resubmits_to_legacy_instructor_queue(self):
+    def test_human_owned_draft_resubmits_to_curie(self):
         submission = _swot_submission(status=Submission.STATUS_DRAFT, version_number=3)
         feedback = InstructorFeedbackFactory(
             submission=submission,
             source=SOURCE_HUMAN,
             status=STATUS_PENDING,
         )
-        response = _post_submit(submission, {"goal": "draft after human reopen"})
+        revised_data = {**submission.form_data, "goal": "draft after human reopen"}
+        with patch("tas_app.curie.celery_tasks.deliver_curie_trigger.delay"):
+            with self.captureOnCommitCallbacks(execute=True):
+                response = _post_submit(submission, revised_data)
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(CurieReview.objects.filter(submission=submission).count(), 0)
+        review = CurieReview.objects.get(submission=submission)
+        self.assertEqual(review.status, CurieReview.STATUS_PENDING_EVALUATION)
         submission.refresh_from_db()
         feedback.refresh_from_db()
         self.assertEqual(submission.status, Submission.STATUS_SUBMITTED)
         self.assertEqual(submission.version_number, 4)
         self.assertEqual(feedback.source, SOURCE_HUMAN)
         self.assertEqual(feedback.status, STATUS_PENDING)
+        self.assertEqual(feedback.submission_version_number, 3)
+        detail = _get_submission(submission)
+        self.assertEqual(detail.status_code, 200)
+        self.assertIsNone(detail.data["feedback"])
+        self.assertEqual(
+            detail.data["curie_review_status"],
+            CurieReview.STATUS_PENDING_EVALUATION,
+        )
         self.assertTrue(
             SubmissionVersion.objects.filter(
                 submission=submission,
@@ -185,7 +206,7 @@ class CurieAtomicSubmitTest(TestCase):
             ).exists()
         )
 
-    def test_human_rejection_reopen_and_resubmit_preserves_history_without_curie(self):
+    def test_human_rejection_reopen_and_resubmit_runs_curie_and_preserves_history(self):
         submission = _swot_submission(status=Submission.STATUS_SUBMITTED, version_number=2)
         submission.create_version_snapshot()
         instructor = UserFactory(is_staff=True, is_superuser=True)
@@ -211,7 +232,10 @@ class CurieAtomicSubmitTest(TestCase):
         feedback.refresh_from_db()
         self.assertEqual(feedback.status, STATUS_PENDING)
 
-        submit_response = _post_submit(submission, {"goal": "revised human attempt"})
+        revised_data = {**submission.form_data, "goal": "revised human attempt"}
+        with patch("tas_app.curie.celery_tasks.deliver_curie_trigger.delay"):
+            with self.captureOnCommitCallbacks(execute=True):
+                submit_response = _post_submit(submission, revised_data)
         self.assertEqual(submit_response.status_code, 200)
         submission.refresh_from_db()
         feedback.refresh_from_db()
@@ -219,9 +243,25 @@ class CurieAtomicSubmitTest(TestCase):
         self.assertEqual(submission.version_number, 3)
         self.assertEqual(feedback.source, SOURCE_HUMAN)
         self.assertEqual(feedback.status, STATUS_PENDING)
-        self.assertFalse(CurieReview.objects.filter(submission=submission).exists())
-        previous_feedback = feedback.tas_instructor_feedback_versions.get()
+        review = CurieReview.objects.get(
+            submission=submission,
+            submission_version_number=3,
+        )
+        self.assertEqual(review.status, CurieReview.STATUS_PENDING_EVALUATION)
+
+        self.assertEqual(apply_callback(review, _success_payload(review)), "applied")
+        submission.refresh_from_db()
+        feedback.refresh_from_db()
+        self.assertEqual(submission.status, Submission.STATUS_APPROVED)
+        self.assertEqual(feedback.source, SOURCE_CURIE)
+        self.assertEqual(feedback.submission_version_number, 3)
+
+        previous_feedback = feedback.tas_instructor_feedback_versions.get(
+            submission_version__version_number=2,
+        )
         self.assertEqual(previous_feedback.status, "rejected")
+        self.assertEqual(previous_feedback.comment, "Please revise this attempt.")
+        self.assertEqual(previous_feedback.instructor, instructor)
         self.assertEqual(previous_feedback.submission_version.version_number, 2)
 
     def test_initial_curie_submit_requires_form_data(self):

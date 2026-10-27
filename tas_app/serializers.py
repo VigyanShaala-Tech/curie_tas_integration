@@ -210,6 +210,11 @@ class StudentSubmissionResponseSerializer(serializers.ModelSerializer):
         except InstructorFeedback.DoesNotExist:
             return None
 
+        from tas_app.curie.policy import feedback_source_for
+
+        if feedback_source_for(obj) is None:
+            return None
+
         payload = {
             "status": fb.status,
             "comment": fb.comment,
@@ -406,9 +411,13 @@ class SubmissionVersionSerializer(serializers.Serializer):
         return InstructorFeedback.SOURCE_HUMAN
 
     def get_verdict(self, obj):
+        if self.get_feedback_source(obj) == InstructorFeedback.SOURCE_HUMAN:
+            return None
         return self._curie_summary(obj).get("verdict")
 
     def get_star_rating(self, obj):
+        if self.get_feedback_source(obj) == InstructorFeedback.SOURCE_HUMAN:
+            return None
         return self._curie_summary(obj).get("star_rating")
 
 

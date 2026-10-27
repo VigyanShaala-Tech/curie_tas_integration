@@ -19,7 +19,7 @@ from tas_app.curie.scoring import (
 from tas_app.curie.settings import slow_review_seconds
 from tas_app.curie.timeout import is_slow_pending, persist_timeout_if_due
 from tas_app.curie.transitions import attempt_count, instructor_form_locked, is_at_attempt_cap
-from tas_app.models import CurieReview, InstructorFeedback, Submission
+from tas_app.models import CurieReview, Submission
 
 
 def reviews_for(submission: Submission) -> list[CurieReview]:
@@ -74,10 +74,7 @@ def awaiting_instructor_approval(review: CurieReview | None) -> bool:
         or not review.publication_held
     ):
         return False
-    try:
-        source = review.submission.feedback.source
-    except InstructorFeedback.DoesNotExist:
-        source = None
+    source = feedback_source_for(review.submission)
     return source is None and review.submission.status == Submission.STATUS_SUBMITTED
 
 

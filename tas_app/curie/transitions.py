@@ -52,7 +52,7 @@ def is_at_attempt_cap(reviews: list[Any], *, max_attempts: int = MAX_SUBMISSION_
 
 
 def human_owns_projection(feedback_source: str | None, feedback_status: str | None = None) -> bool:
-    """Human ownership is permanent, including after withdraw back to pending."""
+    """Human ownership protects the submission version that was manually graded."""
     return feedback_source == SOURCE_HUMAN
 
 
@@ -88,15 +88,15 @@ def legal_curie_resubmit(
 ) -> bool:
     """Direct reattempt is allowed from draft, CURIE-failed submitted, or CURIE-rejected.
 
-    Human ownership is permanent: any ``source=human`` projection blocks CURIE submit,
-    including draft and submitted/failed after withdraw. No feedback row is first submit.
+    A draft is a new attempt and may enter CURIE even when the prior version was
+    human-graded. Same-version human ownership still blocks submitted retries.
     """
-    if human_owns_projection(feedback_source):
-        return False
     if submission_status == SUBMISSION_APPROVED:
         return False
     if submission_status == SUBMISSION_DRAFT:
         return True
+    if human_owns_projection(feedback_source):
+        return False
     if submission_status == SUBMISSION_SUBMITTED and review_status == STATUS_FAILED:
         return True
     if submission_status == SUBMISSION_REJECTED and feedback_source == SOURCE_CURIE:

@@ -468,14 +468,16 @@ class CurieTransitionTest(SimpleTestCase):
             )
         )
 
-    def test_human_ownership_blocks_draft_and_failed_submit(self):
-        self.assertFalse(
+    def test_new_draft_can_enter_curie_after_human_feedback(self):
+        self.assertTrue(
             legal_curie_resubmit(
                 submission_status="draft",
                 review_status=None,
                 feedback_source=SOURCE_HUMAN,
             )
         )
+
+    def test_same_version_human_ownership_blocks_failed_submit(self):
         self.assertFalse(
             legal_curie_resubmit(
                 submission_status="submitted",
