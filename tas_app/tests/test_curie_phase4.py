@@ -766,14 +766,10 @@ class CurieMysqlPhase4ConcurrencyTest(TransactionTestCase):
 
         submission.refresh_from_db()
         review.refresh_from_db()
-        self.assertEqual(InstructorFeedback.objects.filter(submission=submission).count(), 1)
-        self.assertEqual(submission.feedback.status, submission.status)
-        if human_status == 409:
-            self.assertEqual(callback_outcome, "applied")
-            self.assertEqual(submission.feedback.source, SOURCE_CURIE)
-            self.assertEqual(submission.status, Submission.STATUS_APPROVED)
-        else:
-            self.assertEqual(human_status, 200)
-            self.assertEqual(submission.feedback.source, SOURCE_HUMAN)
-            self.assertEqual(submission.status, STATUS_APPROVED)
-            self.assertIn(callback_outcome, {"applied", "superseded"})
+        # Pending locks the legacy form and ready_for_approval routes it to the approval
+        # workflow, so the human POST is refused in either ordering.
+        self.assertEqual(human_status, 409)
+        self.assertEqual(callback_outcome, "applied")
+        self.assertEqual(review.status, CurieReview.STATUS_READY_FOR_APPROVAL)
+        self.assertEqual(submission.status, Submission.STATUS_SUBMITTED)
+        self.assertFalse(InstructorFeedback.objects.filter(submission=submission).exists())

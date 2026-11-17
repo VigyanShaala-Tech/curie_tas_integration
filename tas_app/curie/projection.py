@@ -7,7 +7,7 @@ from typing import Any, Callable
 from django.db import transaction
 from django.utils import timezone
 
-from tas_app.curie.constants import SOURCE_CURIE, SOURCE_HUMAN, STATUS_READY
+from tas_app.curie.constants import SOURCE_CURIE, SOURCE_HUMAN, STATUS_READY_FOR_APPROVAL
 from tas_app.curie.scoring import compute_verdict, instructor_rubric_entries
 from tas_app.curie.settings import component_pass_threshold
 from tas_app.curie.transitions import projected_submission_status
@@ -73,16 +73,20 @@ def apply_feedback(
 
 
 def apply_curie_success(review, submission: Submission, payload: dict[str, Any], *, after_commit=None):
-    """Write CurieReview success fields and the one-way InstructorFeedback projection."""
+    """
+    Store CURIE output for instructor approval.
+
+    Nothing is released: InstructorFeedback and the submission status stay untouched
+    until an instructor approves (see ``tas_app.curie.approval``).
+    """
     verdict = compute_verdict(
         payload["gate_criterion_scores"],
         payload["field_feedback"],
         threshold=component_pass_threshold(),
     )
-    projection = build_curie_projection(payload["field_feedback"], payload["overall_feedback"], verdict)
     now = timezone.now()
     with transaction.atomic():
-        review.status = STATUS_READY
+        review.status = STATUS_READY_FOR_APPROVAL
         review.verdict = verdict
         review.gate_criterion_scores = payload["gate_criterion_scores"]
         review.field_feedback = payload["field_feedback"]
@@ -90,15 +94,8 @@ def apply_curie_success(review, submission: Submission, payload: dict[str, Any],
         review.error_detail = ""
         review.completed_at = now
         review.save()
-        apply_feedback(
-            submission,
-            source=SOURCE_CURIE,
-            instructor=None,
-            rubrics=projection["rubrics"],
-            comment=projection["comment"],
-            status=projection["status"],
-            after_commit=after_commit,
-        )
+        if after_commit is not None:
+            transaction.on_commit(after_commit)
     return review
 
 

@@ -7,7 +7,7 @@ from typing import Any
 
 from django.utils import timezone
 
-from tas_app.curie.constants import LEARNER_FAILURE_DETAIL
+from tas_app.curie.constants import LEARNER_FAILURE_DETAIL, OUTPUT_STATUSES, SOURCE_CURIE
 from tas_app.curie.policy import current_review, feedback_source_for
 from tas_app.curie.scoring import (
     average_criterion_scores,
@@ -98,15 +98,27 @@ def staff_field_entries(field_feedback: list[dict[str, Any]] | None) -> list[dic
     return entries
 
 
+def published_source(review: CurieReview) -> str | None:
+    if review.status == CurieReview.STATUS_APPROVED:
+        return review.published_source or SOURCE_CURIE
+    if review.status == CurieReview.STATUS_READY:
+        return SOURCE_CURIE
+    return None
+
+
 def learner_review_payload(review: CurieReview, *, now: datetime | None = None) -> dict[str, Any]:
+    """Learner view. Content stays empty until the review is published."""
     now = now or timezone.now()
-    ready = review.status == CurieReview.STATUS_READY
+    published = review.published_content()
+    verdict, _gate, fields, overall = published or (None, [], [], "")
     return {
         "status": review.status,
-        "verdict": review.verdict if ready else None,
-        "overall_feedback": review.overall_feedback if ready else "",
-        "field_feedback": learner_field_entries(review.field_feedback) if ready else [],
-        "star_rating": star_rating(review.field_feedback) if ready else None,
+        "verdict": verdict,
+        "overall_feedback": overall,
+        "field_feedback": learner_field_entries(fields) if published else [],
+        "star_rating": star_rating(fields) if published else None,
+        "feedback_source": published_source(review),
+        "approval_modified": bool(review.approval_modified) if published else False,
         "is_slow_pending": _is_slow(review, now),
         "submission_version_number": review.submission_version_number,
         "error_detail": LEARNER_FAILURE_DETAIL if review.status == CurieReview.STATUS_FAILED else "",
@@ -115,20 +127,47 @@ def learner_review_payload(review: CurieReview, *, now: datetime | None = None) 
     }
 
 
+def _approval_payload(review: CurieReview) -> dict[str, Any] | None:
+    if review.status != CurieReview.STATUS_APPROVED:
+        return None
+    gate = review.approved_gate_criterion_scores or []
+    fields = review.approved_field_feedback or []
+    approver = review.approved_by
+    return {
+        "approved_by": approver.username if approver else None,
+        "approved_at": review.approved_at,
+        "approval_modified": review.approval_modified,
+        "published_source": published_source(review),
+        "verdict": review.approved_verdict,
+        "overall_feedback": review.approved_overall_feedback,
+        "gate_criterion_scores": gate,
+        "gate_score": average_criterion_scores(gate) if gate else None,
+        "criterion_wise_scores": criterion_wise_scores(fields),
+        "field_feedback": staff_field_entries(fields),
+        "star_rating": star_rating(fields),
+    }
+
+
 def staff_review_payload(review: CurieReview, *, now: datetime | None = None) -> dict[str, Any]:
+    """Instructor view: the original CURIE output once evaluated, plus approval details."""
     now = now or timezone.now()
-    ready = review.status == CurieReview.STATUS_READY
+    has_output = review.status in OUTPUT_STATUSES
     gate = review.gate_criterion_scores or []
     payload = learner_review_payload(review, now=now)
     payload.update(
         {
             "trigger_id": str(review.trigger_id),
-            "gate_criterion_scores": gate if ready else [],
-            "gate_score": average_criterion_scores(gate) if ready and gate else None,
-            "criterion_wise_scores": criterion_wise_scores(review.field_feedback) if ready else {},
-            "field_feedback": staff_field_entries(review.field_feedback) if ready else [],
+            "verdict": review.verdict if has_output else None,
+            "overall_feedback": review.overall_feedback if has_output else "",
+            "star_rating": star_rating(review.field_feedback) if has_output else None,
+            "gate_criterion_scores": gate if has_output else [],
+            "gate_score": average_criterion_scores(gate) if has_output and gate else None,
+            "criterion_wise_scores": criterion_wise_scores(review.field_feedback) if has_output else {},
+            "field_feedback": staff_field_entries(review.field_feedback) if has_output else [],
             "error_detail": review.error_detail if review.status == CurieReview.STATUS_FAILED else "",
             "instructor_form_locked": instructor_form_locked(review_status=review.status),
+            "awaiting_approval": review.status == CurieReview.STATUS_READY_FOR_APPROVAL,
+            "approval": _approval_payload(review),
         }
     )
     return payload
@@ -154,11 +193,12 @@ def history_curie_summaries(submission: Submission, *, now: datetime | None = No
         resolved = persist_timeout_if_due(review, now=now)
         if resolved is None:
             continue
-        ready = resolved.status == CurieReview.STATUS_READY
+        published = resolved.published_content()
         summaries[resolved.submission_version_number] = {
             "status": resolved.status,
-            "verdict": resolved.verdict if ready else None,
-            "star_rating": star_rating(resolved.field_feedback) if ready else None,
+            "verdict": published[0] if published else None,
+            "star_rating": star_rating(published[2]) if published else None,
+            "feedback_source": published_source(resolved),
         }
     submission._curie_reviews_cache = None
     return summaries
@@ -171,11 +211,19 @@ def attempt_numbers_for_versions(version_numbers: list[int]) -> dict[int, int]:
 
 def instructor_queue_curie_fields(submission: Submission) -> dict[str, Any]:
     status = getattr(submission, "curie_review_status", None)
+    source = getattr(submission, "curie_published_source", None)
     if status is None:
         review = current_review(submission)
         status = review.status if review else None
+        source = review.published_source if review else None
+    if status == CurieReview.STATUS_READY_FOR_APPROVAL:
+        feedback_source = SOURCE_CURIE
+    elif status == CurieReview.STATUS_APPROVED:
+        feedback_source = source or SOURCE_CURIE
+    else:
+        feedback_source = feedback_source_for(submission)
     return {
         "curie_review_status": status,
-        "feedback_source": feedback_source_for(submission),
+        "feedback_source": feedback_source,
         "instructor_form_locked": instructor_form_locked(review_status=status),
     }

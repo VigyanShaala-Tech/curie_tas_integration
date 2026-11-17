@@ -9,9 +9,11 @@ from opaque_keys.edx.django.models import CourseKeyField, UsageKeyField
 from tas_app.curie.constants import (
     SOURCE_CURIE,
     SOURCE_HUMAN,
+    STATUS_APPROVED as CURIE_STATUS_APPROVED,
     STATUS_FAILED as CURIE_STATUS_FAILED,
     STATUS_PENDING_EVALUATION,
     STATUS_READY,
+    STATUS_READY_FOR_APPROVAL,
     VERDICT_ACCEPTED,
     VERDICT_REJECTED,
 )
@@ -559,11 +561,19 @@ class CurieReview(TimeStampedModel):
 
     STATUS_PENDING_EVALUATION = STATUS_PENDING_EVALUATION
     STATUS_READY = STATUS_READY
+    STATUS_READY_FOR_APPROVAL = STATUS_READY_FOR_APPROVAL
+    STATUS_APPROVED = CURIE_STATUS_APPROVED
     STATUS_FAILED = CURIE_STATUS_FAILED
     STATUS_CHOICES = [
         (STATUS_PENDING_EVALUATION, "Pending evaluation"),
-        (STATUS_READY, "Ready"),
+        (STATUS_READY, "Ready (auto-published)"),
+        (STATUS_READY_FOR_APPROVAL, "Ready for approval"),
+        (CURIE_STATUS_APPROVED, "Approved"),
         (CURIE_STATUS_FAILED, "Failed"),
+    ]
+    SOURCE_CHOICES = [
+        (SOURCE_HUMAN, "Human"),
+        (SOURCE_CURIE, "CURIE"),
     ]
     VERDICT_ACCEPTED = VERDICT_ACCEPTED
     VERDICT_REJECTED = VERDICT_REJECTED
@@ -628,6 +638,36 @@ class CurieReview(TimeStampedModel):
         blank=True,
         help_text="Canonical TAS→CURIE trigger body frozen at submit. Retries must reuse this object.",
     )
+    approved_by = models.ForeignKey(
+        User,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="approved_curie_reviews",
+        help_text="Instructor who released this review to the learner.",
+    )
+    approved_at = models.DateTimeField(null=True, blank=True)
+    approval_modified = models.BooleanField(
+        default=False,
+        help_text="True when the instructor edited the CURIE output before releasing it.",
+    )
+    published_source = models.CharField(
+        max_length=16,
+        choices=SOURCE_CHOICES,
+        blank=True,
+        default="",
+        help_text="curie when released unchanged, human when the instructor overrode it.",
+    )
+    approved_verdict = models.CharField(
+        max_length=16,
+        choices=VERDICT_CHOICES,
+        null=True,
+        blank=True,
+        help_text="Verdict computed from the released content.",
+    )
+    approved_gate_criterion_scores = models.JSONField(default=list, blank=True)
+    approved_field_feedback = models.JSONField(default=list, blank=True)
+    approved_overall_feedback = models.TextField(blank=True, default="")
 
     class Meta:
         verbose_name = "CURIE Review"
@@ -641,3 +681,21 @@ class CurieReview(TimeStampedModel):
 
     def __str__(self):
         return f"{self.submission_id} v{self.submission_version_number} ({self.status})"
+
+    def published_content(self):
+        """Return (verdict, gate, field_feedback, overall) released to the learner, or None."""
+        if self.status == CURIE_STATUS_APPROVED:
+            return (
+                self.approved_verdict,
+                self.approved_gate_criterion_scores or [],
+                self.approved_field_feedback or [],
+                self.approved_overall_feedback or "",
+            )
+        if self.status == STATUS_READY:
+            return (
+                self.verdict,
+                self.gate_criterion_scores or [],
+                self.field_feedback or [],
+                self.overall_feedback or "",
+            )
+        return None

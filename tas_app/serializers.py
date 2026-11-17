@@ -163,36 +163,52 @@ class StudentSubmissionResponseSerializer(serializers.ModelSerializer):
         except InstructorFeedback.DoesNotExist:
             return None
 
+        from tas_app.curie.constants import PUBLISHED_STATUSES
+        from tas_app.curie.policy import workflow_released_review
+        from tas_app.curie.reads import learner_field_entries, reviews_for
+
+        reviews = reviews_for(obj)
+        current = next(
+            (item for item in reviews if item.submission_version_number == obj.version_number),
+            None,
+        )
+        if current is not None and current.status == CurieReview.STATUS_READY_FOR_APPROVAL:
+            return None
+
         payload = {
             "status": fb.status,
             "comment": fb.comment,
             "source": fb.source,
         }
-        if fb.source != InstructorFeedback.SOURCE_CURIE:
-            payload["rubrics"] = fb.rubrics
-            return payload
-
-        from tas_app.curie.reads import learner_field_entries, reviews_for
-
-        payload["rubrics"] = []
-        reviews = reviews_for(obj)
-        review = next(
-            (
-                item
-                for item in reviews
-                if item.submission_version_number == obj.version_number
-                and item.status == CurieReview.STATUS_READY
-            ),
-            None,
-        )
-        if review is None:
+        review = None
+        if fb.source == InstructorFeedback.SOURCE_HUMAN:
+            review = workflow_released_review(obj)
+            if review is None:
+                payload["rubrics"] = fb.rubrics
+                return payload
+        else:
             review = next(
-                (item for item in reviews if item.status == CurieReview.STATUS_READY),
+                (
+                    item
+                    for item in reviews
+                    if item.submission_version_number == obj.version_number
+                    and item.status in PUBLISHED_STATUSES
+                ),
                 None,
             )
-        if review is not None:
-            payload["field_feedback"] = learner_field_entries(review.field_feedback)
-            payload["verdict"] = review.verdict
+            if review is None:
+                review = next(
+                    (item for item in reviews if item.status in PUBLISHED_STATUSES),
+                    None,
+                )
+
+        payload["rubrics"] = []
+        published = review.published_content() if review is not None else None
+        if published is not None:
+            verdict, _gate, fields, _overall = published
+            payload["field_feedback"] = learner_field_entries(fields)
+            payload["verdict"] = verdict
+            payload["approval_modified"] = bool(review.approval_modified)
         return payload
 
     def get_curie_review_status(self, obj):
@@ -345,6 +361,9 @@ class SubmissionVersionSerializer(serializers.Serializer):
         linked = self._latest_linked_feedback(obj)
         if linked is None:
             return None
+        released_source = self._curie_summary(obj).get("feedback_source")
+        if self._curie_summary(obj).get("status") == CurieReview.STATUS_APPROVED and released_source:
+            return released_source
         if linked.instructor_id is not None:
             return InstructorFeedback.SOURCE_HUMAN
         if self._curie_summary(obj):
