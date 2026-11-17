@@ -59,6 +59,22 @@ class CurieManualPublishTest(TestCase):
             self.submission.pk,
         )
 
+    def _structured_override(self, status="rejected"):
+        return {
+            "status": status,
+            "structured_feedback": {
+                "gate_criterion_scores": self.review.gate_criterion_scores,
+                "field_feedback": [
+                    {
+                        **entry,
+                        "comment": f"Instructor: {entry['comment']}",
+                    }
+                    for entry in self.review.field_feedback
+                ],
+                "overall_feedback": "Instructor-authored structured feedback.",
+            },
+        }
+
     def test_setting_disables_automatic_publication(self):
         self.assertFalse(auto_publish())
 
@@ -92,14 +108,17 @@ class CurieManualPublishTest(TestCase):
         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.data["status"], CurieReview.STATUS_PENDING_EVALUATION)
+        self.assertEqual(response.data["status"], CurieReview.STATUS_READY)
         self.assertTrue(response.data["awaiting_instructor_approval"])
         self.assertIsNone(response.data["verdict"])
         self.assertEqual(response.data["overall_feedback"], "")
         self.assertEqual(response.data["field_feedback"], [])
         self.assertIsNone(response.data["star_rating"])
-        self.assertTrue(submission_curie_fields(self.submission)["awaiting_instructor_approval"])
+        submission_fields = submission_curie_fields(self.submission)
+        self.assertEqual(submission_fields["curie_review_status"], CurieReview.STATUS_READY)
+        self.assertTrue(submission_fields["awaiting_instructor_approval"])
         summaries = history_curie_summaries(self.submission)
+        self.assertEqual(summaries[2]["status"], CurieReview.STATUS_READY)
         self.assertTrue(summaries[2]["awaiting_instructor_approval"])
         self.assertTrue(
             StudentSubmissionResponseSerializer(self.submission).data[
@@ -211,11 +230,7 @@ class CurieManualPublishTest(TestCase):
         response = _post_human_feedback(
             self.submission,
             self.staff,
-            {
-                "status": "rejected",
-                "comment": "Instructor override.",
-                "rubrics": [],
-            },
+            self._structured_override(),
         )
         self.assertEqual(response.status_code, 200)
 
@@ -224,6 +239,43 @@ class CurieManualPublishTest(TestCase):
         self.submission.refresh_from_db()
         self.assertEqual(self.submission.status, Submission.STATUS_REJECTED)
         self.assertEqual(self.submission.feedback.source, InstructorFeedback.SOURCE_HUMAN)
+        self.assertEqual(
+            self.submission.feedback.structured_feedback["verdict"],
+            CurieReview.VERDICT_REJECTED,
+        )
+        self.assertEqual(
+            self.submission.feedback.structured_feedback["field_feedback"][0]["comment"],
+            f"Instructor: {self.review.field_feedback[0]['comment']}",
+        )
+        snapshot = self.submission.feedback.tas_instructor_feedback_versions.get()
+        self.assertEqual(
+            snapshot.structured_feedback,
+            self.submission.feedback.structured_feedback,
+        )
+        learner = StudentSubmissionResponseSerializer(self.submission).data["feedback"]
+        self.assertEqual(learner["source"], InstructorFeedback.SOURCE_HUMAN)
+        self.assertEqual(learner["verdict"], CurieReview.VERDICT_REJECTED)
+        self.assertTrue(learner["field_feedback"])
+        self.assertNotIn("criterion_scores", learner["field_feedback"][0])
+
+    def test_ready_curie_override_rejects_legacy_manual_payload(self):
+        self._store_success()
+        response = _post_human_feedback(
+            self.submission,
+            self.staff,
+            {"status": "rejected", "comment": "Old manual format.", "rubrics": []},
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("structured_feedback", response.data)
+        self.assertFalse(InstructorFeedback.objects.filter(submission=self.submission).exists())
+
+    def test_structured_override_cannot_change_curie_weights(self):
+        self._store_success()
+        payload = self._structured_override()
+        payload["structured_feedback"]["field_feedback"][0]["weight"] += 1
+        response = _post_human_feedback(self.submission, self.staff, payload)
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(InstructorFeedback.objects.filter(submission=self.submission).exists())
 
     def test_switching_auto_publish_on_does_not_release_a_held_review(self):
         payload = _success_payload(self.review)
@@ -238,6 +290,10 @@ class CurieManualPublishTest(TestCase):
 
 
 class CurieAutoPublishDefaultTest(TestCase):
-    def test_auto_publish_defaults_to_true(self):
+    def test_auto_publish_defaults_to_manual_approval(self):
         with override_settings():
-            self.assertTrue(auto_publish())
+            self.assertFalse(auto_publish())
+
+    @override_settings(CURIE_AUTO_PUBLISH=True)
+    def test_auto_publish_can_be_enabled_independently(self):
+        self.assertTrue(auto_publish())

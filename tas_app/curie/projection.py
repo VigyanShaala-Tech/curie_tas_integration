@@ -43,6 +43,7 @@ def apply_feedback(
     rubrics,
     comment: str,
     status: str,
+    structured_feedback=None,
     snapshot: bool = True,
     after_commit: Callable[[], None] | None = None,
 ) -> InstructorFeedback:
@@ -59,6 +60,7 @@ def apply_feedback(
                 "instructor": instructor,
                 "rubrics": rubrics,
                 "comment": comment,
+                "structured_feedback": structured_feedback or {},
                 "status": status,
                 "submission_version_number": submission.version_number,
             },
@@ -122,7 +124,16 @@ def publish_curie_review(review, submission: Submission, *, after_commit=None):
     return review
 
 
-def apply_human_feedback(submission: Submission, *, instructor, rubrics, comment, status, after_commit=None):
+def apply_human_feedback(
+    submission: Submission,
+    *,
+    instructor,
+    rubrics,
+    comment,
+    status,
+    structured_feedback=None,
+    after_commit=None,
+):
     return apply_feedback(
         submission,
         source=SOURCE_HUMAN,
@@ -130,5 +141,6 @@ def apply_human_feedback(submission: Submission, *, instructor, rubrics, comment
         rubrics=rubrics,
         comment=comment,
         status=status,
+        structured_feedback=structured_feedback,
         after_commit=after_commit,
     )

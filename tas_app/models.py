@@ -424,6 +424,14 @@ class InstructorFeedback(TimeStampedModel):
         blank=True,
         help_text="Free-form instructor comments about the submission.",
     )
+    structured_feedback = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text=(
+            "CURIE-shaped field and criterion feedback authored by a human override. "
+            "Empty for legacy manual feedback and CURIE compatibility projections."
+        ),
+    )
 
     status = models.CharField(
         max_length=20,
@@ -487,6 +495,7 @@ class InstructorFeedback(TimeStampedModel):
                 instructor=locked.instructor,
                 rubrics=locked.rubrics,
                 comment=locked.comment,
+                structured_feedback=locked.structured_feedback,
                 status=locked.status,
                 submission_version=submission_version,
             )
@@ -532,6 +541,11 @@ class InstructorFeedbackVersion(TimeStampedModel):
     comment = models.TextField(
         blank=True,
         help_text="Free-form instructor comments about the submission.",
+    )
+    structured_feedback = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Immutable CURIE-shaped human feedback snapshot, when present.",
     )
     status = models.CharField(
         max_length=20,

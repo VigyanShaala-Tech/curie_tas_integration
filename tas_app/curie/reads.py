@@ -93,6 +93,19 @@ def learner_field_entries(field_feedback: list[dict[str, Any]] | None) -> list[d
     return entries
 
 
+def learner_structured_feedback_payload(structured_feedback: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Return the learner-safe CURIE presentation shape for a Human override."""
+    if not isinstance(structured_feedback, dict) or not structured_feedback.get("field_feedback"):
+        return None
+    fields = learner_field_entries(structured_feedback.get("field_feedback"))
+    return {
+        "verdict": structured_feedback.get("verdict"),
+        "overall_feedback": structured_feedback.get("overall_feedback", ""),
+        "field_feedback": fields,
+        "star_rating": star_rating(structured_feedback.get("field_feedback") or []),
+    }
+
+
 def staff_field_entries(field_feedback: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
     entries = []
     for item in field_feedback or []:
@@ -115,7 +128,9 @@ def learner_review_payload(review: CurieReview, *, now: datetime | None = None) 
     awaiting_approval = awaiting_instructor_approval(review)
     ready = review.status == CurieReview.STATUS_READY and not awaiting_approval
     return {
-        "status": CurieReview.STATUS_PENDING_EVALUATION if awaiting_approval else review.status,
+        # A held ready review is complete, not still evaluating. Its contents
+        # remain private until an instructor publishes or overrides it.
+        "status": review.status,
         "awaiting_instructor_approval": awaiting_approval,
         "verdict": review.verdict if ready else None,
         "overall_feedback": review.overall_feedback if ready else "",
@@ -159,11 +174,7 @@ def submission_curie_fields(submission: Submission, *, now: datetime | None = No
     current = resolve_review_for_read(submission, now=now)
     reviews = reviews_for(submission)
     return {
-        "curie_review_status": (
-            CurieReview.STATUS_PENDING_EVALUATION
-            if awaiting_instructor_approval(current)
-            else current.status if current else None
-        ),
+        "curie_review_status": current.status if current else None,
         "awaiting_instructor_approval": awaiting_instructor_approval(current),
         "is_slow_pending": _is_slow(current, now) if current else False,
         "submission_attempt_count": attempt_count(reviews),
@@ -181,7 +192,7 @@ def history_curie_summaries(submission: Submission, *, now: datetime | None = No
         awaiting_approval = awaiting_instructor_approval(resolved)
         ready = resolved.status == CurieReview.STATUS_READY and not awaiting_approval
         summaries[resolved.submission_version_number] = {
-            "status": CurieReview.STATUS_PENDING_EVALUATION if awaiting_approval else resolved.status,
+            "status": resolved.status,
             "awaiting_instructor_approval": awaiting_approval,
             "verdict": resolved.verdict if ready else None,
             "star_rating": star_rating(resolved.field_feedback) if ready else None,

@@ -393,10 +393,19 @@ class CurieMysqlConcurrencyTest(TransactionTestCase):
             callback_outcome = callback_future.result()
             human_status = human_future.result()
 
-        self.assertEqual(human_status, 200)
+        self.assertIn(human_status, {200, 400})
         self.assertIn(callback_outcome, {"applied", "superseded"})
         submission.refresh_from_db()
         review.refresh_from_db()
+        if human_status == 400:
+            # If CURIE wins the row lock, the review is already ready and the
+            # legacy failed-review form is rejected by the structured-override
+            # contract. The projection must remain consistently CURIE-owned.
+            self.assertEqual(callback_outcome, "applied")
+            self.assertEqual(submission.feedback.source, InstructorFeedback.SOURCE_CURIE)
+            self.assertEqual(review.status, CurieReview.STATUS_READY)
+            self.assertEqual(submission.feedback.status, submission.status)
+            return
         self.assertEqual(submission.feedback.source, SOURCE_HUMAN)
         self.assertEqual(submission.feedback.status, STATUS_APPROVED)
         self.assertEqual(submission.status, STATUS_APPROVED)

@@ -15,7 +15,7 @@ from edx_rest_framework_extensions.auth.jwt.authentication import JwtAuthenticat
 from rest_framework.generics import ListCreateAPIView
 from rest_framework import status
 from rest_framework import permissions
-from rest_framework.exceptions import NotFound
+from rest_framework.exceptions import NotFound, ValidationError
 
 from .pdf_generator import generate_submission_pdf
 from .tasks import push_grade_to_lms
@@ -708,6 +708,7 @@ class LearnerSubmissionDetailAPIView(APIView):
                 "status",
                 "comment",
                 "rubrics",
+                "structured_feedback",
                 "created",
                 "instructor_id",
                 "submission_version__version_number",
@@ -718,6 +719,7 @@ class LearnerSubmissionDetailAPIView(APIView):
                     "status": row["status"],
                     "comment": row["comment"],
                     "rubrics": row["rubrics"],
+                    "structured_feedback": row["structured_feedback"],
                     "created": row["created"],
                     "source": (
                         InstructorFeedback.SOURCE_HUMAN
@@ -740,6 +742,7 @@ class LearnerSubmissionDetailAPIView(APIView):
                         "status": fb.status,
                         "comment": fb.comment,
                         "rubrics": fb.rubrics,
+                        "structured_feedback": fb.structured_feedback,
                         "source": active_source,
                     }
                 )
@@ -920,7 +923,20 @@ class InstructorFeedbackAPIView(APIView):
         validated_data = serializer.validated_data
         submission_status = validated_data.get("status", STATUS_PENDING)
 
-        from tas_app.curie.policy import CuriePolicyError, assert_instructor_form_unlocked
+        from tas_app.curie.callback import submitted_field_ids
+        from tas_app.curie.constants import VERDICT_ACCEPTED, VERDICT_REJECTED
+        from tas_app.curie.policy import (
+            CuriePolicyError,
+            assert_instructor_form_unlocked,
+            current_review,
+        )
+        from tas_app.curie.projection import sanitize_overall_feedback
+        from tas_app.curie.scoring import instructor_rubric_entries
+        from tas_app.curie.validation import (
+            CallbackValidationError,
+            validate_criterion_scores,
+            validate_field_feedback,
+        )
 
         try:
             with transaction.atomic():
@@ -931,13 +947,81 @@ class InstructorFeedbackAPIView(APIView):
                     .get(id=pk)
                 )
                 assert_instructor_form_unlocked(submission)
+                review = current_review(submission)
+                structured_input = validated_data.get("structured_feedback")
+                structured_feedback = {}
+                rubrics = validated_data.get("rubrics", [])
+                comment = validated_data.get("comment", "")
+
+                if review is not None and review.status == CurieReview.STATUS_READY:
+                    if not structured_input:
+                        raise ValidationError(
+                            {"structured_feedback": "CURIE overrides require structured feedback."}
+                        )
+                    if submission_status not in (STATUS_APPROVED, STATUS_REJECTED):
+                        raise ValidationError(
+                            {"status": "A structured CURIE override must be approved or rejected."}
+                        )
+                    allowed_ids = submitted_field_ids(review)
+                    if not allowed_ids:
+                        raise ValidationError(
+                            {"structured_feedback": "The stored CURIE review has no field contract."}
+                        )
+                    overall = structured_input.get("overall_feedback")
+                    if not isinstance(overall, str) or not overall.strip():
+                        raise ValidationError(
+                            {"structured_feedback": "overall_feedback is required."}
+                        )
+                    try:
+                        gate_scores = validate_criterion_scores(
+                            structured_input.get("gate_criterion_scores"),
+                            label="gate_criterion_scores",
+                        )
+                        field_feedback = validate_field_feedback(
+                            structured_input.get("field_feedback"),
+                            allowed_field_ids=allowed_ids,
+                        )
+                    except CallbackValidationError as exc:
+                        raise ValidationError({"structured_feedback": str(exc)}) from exc
+
+                    original_weights = {
+                        entry.get("field_id"): int(entry.get("weight", 1))
+                        for entry in (review.field_feedback or [])
+                    }
+                    for entry in field_feedback:
+                        if entry["weight"] != original_weights.get(entry["field_id"]):
+                            raise ValidationError(
+                                {"structured_feedback": "CURIE component weights cannot be changed."}
+                            )
+                    by_id = {entry["field_id"]: entry for entry in field_feedback}
+                    field_feedback = [by_id[field_id] for field_id in allowed_ids]
+                    verdict = (
+                        VERDICT_ACCEPTED
+                        if submission_status == STATUS_APPROVED
+                        else VERDICT_REJECTED
+                    )
+                    structured_feedback = {
+                        "schema_version": 1,
+                        "verdict": verdict,
+                        "gate_criterion_scores": gate_scores,
+                        "field_feedback": field_feedback,
+                        "overall_feedback": overall.strip(),
+                    }
+                    rubrics = instructor_rubric_entries(field_feedback)
+                    comment = sanitize_overall_feedback(overall)
+                elif structured_input:
+                    raise ValidationError(
+                        {"structured_feedback": "Structured feedback requires a ready CURIE review."}
+                    )
+
                 feedback, created = InstructorFeedback.objects.update_or_create(
                     submission=submission,
                     defaults={
                         "instructor": request.user,
                         "source": InstructorFeedback.SOURCE_HUMAN,
-                        "rubrics": validated_data.get("rubrics", []),
-                        "comment": validated_data.get("comment", ""),
+                        "rubrics": rubrics,
+                        "comment": comment,
+                        "structured_feedback": structured_feedback,
                         "status": submission_status,
                         "submission_version_number": submission.version_number,
                     },
@@ -950,6 +1034,8 @@ class InstructorFeedbackAPIView(APIView):
                         _push_submission_grade(submission, feedback.rubrics)
         except Submission.DoesNotExist:
             return Response({"detail": "Submission not found."}, status=status.HTTP_404_NOT_FOUND)
+        except ValidationError as exc:
+            return Response(exc.detail, status=status.HTTP_400_BAD_REQUEST)
         except CuriePolicyError as exc:
             return Response({"detail": exc.detail}, status=exc.status_code)
 

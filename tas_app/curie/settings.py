@@ -30,7 +30,7 @@ def curie_enabled() -> bool:
 
 def auto_publish() -> bool:
     """Whether successful CURIE callbacks immediately publish learner feedback."""
-    return bool(getattr(settings, "CURIE_AUTO_PUBLISH", True))
+    return bool(getattr(settings, "CURIE_AUTO_PUBLISH", False))
 
 
 def trigger_url() -> str:

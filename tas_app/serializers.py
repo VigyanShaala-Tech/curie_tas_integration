@@ -222,6 +222,11 @@ class StudentSubmissionResponseSerializer(serializers.ModelSerializer):
         }
         if fb.source != InstructorFeedback.SOURCE_CURIE:
             payload["rubrics"] = fb.rubrics
+            from tas_app.curie.reads import learner_structured_feedback_payload
+
+            structured = learner_structured_feedback_payload(fb.structured_feedback)
+            if structured is not None:
+                payload.update(structured)
             return payload
 
         from tas_app.curie.reads import learner_field_entries, reviews_for
@@ -341,6 +346,7 @@ class SubmissionVersionSerializer(serializers.Serializer):
     feedback_source = serializers.SerializerMethodField()
     verdict = serializers.SerializerMethodField()
     star_rating = serializers.SerializerMethodField()
+    field_feedback = serializers.SerializerMethodField()
     # Legacy fields retained for backward compatibility with existing clients.
     form_data = serializers.JSONField()
     saved_at = serializers.DateTimeField()
@@ -411,14 +417,30 @@ class SubmissionVersionSerializer(serializers.Serializer):
         return InstructorFeedback.SOURCE_HUMAN
 
     def get_verdict(self, obj):
+        linked = self._latest_linked_feedback(obj)
         if self.get_feedback_source(obj) == InstructorFeedback.SOURCE_HUMAN:
-            return None
+            return (linked.structured_feedback or {}).get("verdict") if linked else None
         return self._curie_summary(obj).get("verdict")
 
     def get_star_rating(self, obj):
+        linked = self._latest_linked_feedback(obj)
         if self.get_feedback_source(obj) == InstructorFeedback.SOURCE_HUMAN:
-            return None
+            if linked is None:
+                return None
+            from tas_app.curie.reads import learner_structured_feedback_payload
+
+            structured = learner_structured_feedback_payload(linked.structured_feedback)
+            return structured.get("star_rating") if structured else None
         return self._curie_summary(obj).get("star_rating")
+
+    def get_field_feedback(self, obj):
+        linked = self._latest_linked_feedback(obj)
+        if linked is None or self.get_feedback_source(obj) != InstructorFeedback.SOURCE_HUMAN:
+            return []
+        from tas_app.curie.reads import learner_structured_feedback_payload
+
+        structured = learner_structured_feedback_payload(linked.structured_feedback)
+        return structured.get("field_feedback", []) if structured else []
 
 
 class TemplateTypeBasicSerializer(serializers.ModelSerializer):
@@ -486,12 +508,20 @@ class InstructorFeedbackUpsertSerializer(serializers.Serializer):
     rubrics = serializers.JSONField(required=False)
     comment = serializers.CharField(required=False, allow_blank=True)
     status = serializers.ChoiceField(choices=STATUS_CHOICES, required=False)
+    structured_feedback = serializers.JSONField(required=False)
 
     def validate_rubrics(self, value):
         if value is None:
             return []
         if not isinstance(value, list):
             raise serializers.ValidationError("rubrics must be a list.")
+        return value
+
+    def validate_structured_feedback(self, value):
+        if value is None:
+            return {}
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("structured_feedback must be an object.")
         return value
 
 

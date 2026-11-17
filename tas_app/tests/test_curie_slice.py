@@ -92,6 +92,7 @@ def _success_payload(review):
 
 SLICE_SETTINGS = dict(
     CURIE_ENABLED=True,
+    CURIE_AUTO_PUBLISH=True,
     CURIE_TRIGGER_URL="http://curie-stub.example/api/v1/assessment-reviews/",
     CURIE_CALLBACK_BASE_URL="http://lms.example",
     CURIE_AUTH_HEADER_NAME="X-Curie-Shared-Secret",
