@@ -587,13 +587,13 @@ class LearnerSubmissionsAPIView(APIView):
         status_counts = build_submission_status_counts(submissions_qs)
         submissions_qs = apply_submission_status_filter(submissions_qs, request.query_params)
         submissions_qs = apply_submission_list_ordering(submissions_qs, request.query_params)
+        current_review_qs = CurieReview.objects.filter(
+            submission_id=OuterRef("pk"),
+            submission_version_number=OuterRef("version_number"),
+        )
         submissions_qs = submissions_qs.annotate(
-            curie_review_status=Subquery(
-                CurieReview.objects.filter(
-                    submission_id=OuterRef("pk"),
-                    submission_version_number=OuterRef("version_number"),
-                ).values("status")[:1]
-            )
+            curie_review_status=Subquery(current_review_qs.values("status")[:1]),
+            curie_published_source=Subquery(current_review_qs.values("published_source")[:1]),
         )
 
         # Use custom paginator for paginating results

@@ -10,14 +10,15 @@ from django.utils import timezone
 
 from tas_app.curie.constants import (
     HUMAN_SUPERSEDED_DETAIL,
+    OUTPUT_STATUSES,
     RESULT_ERROR,
     RESULT_SUCCESS,
     STATUS_FAILED,
     STATUS_PENDING_EVALUATION,
-    STATUS_READY,
     VERDICT_ACCEPTED,
 )
 from tas_app.curie.metrics import record_callback_outcome
+from tas_app.curie.policy import lifecycle_feedback_source
 from tas_app.curie.projection import apply_curie_success
 from tas_app.curie.settings import auth_header_name, shared_secret
 from tas_app.curie.transitions import can_apply_curie_projection, human_owns_projection
@@ -62,12 +63,12 @@ def _feedback_source_and_status(submission) -> tuple[str | None, str | None]:
         feedback = submission.feedback
     except InstructorFeedback.DoesNotExist:
         return None, None
-    return feedback.source, feedback.status
+    return lifecycle_feedback_source(submission), feedback.status
 
 
 def _success_matches_stored(review: CurieReview, payload: dict) -> bool:
     return (
-        review.status == STATUS_READY
+        review.status in OUTPUT_STATUSES
         and payload["result"] == RESULT_SUCCESS
         and review.gate_criterion_scores == payload["gate_criterion_scores"]
         and review.field_feedback == payload["field_feedback"]
@@ -146,7 +147,7 @@ def apply_callback(review: CurieReview, raw_payload: dict, *, after_success=None
         if human_owns_projection(source, status):
             return _record_superseded(review)
 
-        if review.status == STATUS_READY:
+        if review.status in OUTPUT_STATUSES:
             logger.info("CURIE callback conflict trigger_id=%s", review.trigger_id)
             record_callback_outcome("conflict")
             return "conflict"

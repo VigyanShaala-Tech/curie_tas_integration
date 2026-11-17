@@ -20,8 +20,19 @@ RESULT_SUCCESS = "success"
 RESULT_ERROR = "error"
 
 STATUS_PENDING_EVALUATION = "pending_evaluation"
+# Legacy: CURIE output auto-published before the instructor approval workflow existed.
 STATUS_READY = "ready"
+STATUS_READY_FOR_APPROVAL = "ready_for_approval"
+STATUS_APPROVED = "approved"
 STATUS_FAILED = "failed"
+
+# Statuses that carry a stored CURIE output.
+OUTPUT_STATUSES = frozenset({STATUS_READY, STATUS_READY_FOR_APPROVAL, STATUS_APPROVED})
+# Statuses whose feedback has been released to the learner.
+PUBLISHED_STATUSES = frozenset({STATUS_READY, STATUS_APPROVED})
+
+APPROVAL_ACTION_APPROVE = "approve"
+APPROVAL_ACTION_OVERRIDE = "override"
 
 VERDICT_ACCEPTED = "accepted"
 VERDICT_REJECTED = "rejected"

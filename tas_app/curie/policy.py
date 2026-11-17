@@ -4,15 +4,18 @@ from __future__ import annotations
 
 from typing import Any
 
+from tas_app.curie.constants import SOURCE_CURIE, SOURCE_HUMAN
 from tas_app.curie.settings import curie_enabled
 from tas_app.curie.timeout import persist_timeout_if_due
 from tas_app.curie.transitions import (
+    awaiting_instructor_approval,
     can_withdraw_feedback,
     instructor_form_locked,
     is_at_attempt_cap,
     is_curie_eligible,
+    released_via_approval,
 )
-from tas_app.models import InstructorFeedback, Submission
+from tas_app.models import CurieReview, InstructorFeedback, Submission
 
 
 class CuriePolicyError(Exception):
@@ -57,6 +60,38 @@ def current_review(submission: Submission, version_number: int | None = None):
     return submission.curie_reviews.filter(submission_version_number=version).first()
 
 
+def workflow_released_review(submission: Submission):
+    """Return the approved CurieReview that produced the current feedback row, if any."""
+    try:
+        feedback = submission.feedback
+    except InstructorFeedback.DoesNotExist:
+        return None
+    # Legacy grading is refused once the current attempt is approved, so its feedback
+    # row can only have come from that approval.
+    current = current_review(submission)
+    if current is not None and current.status == CurieReview.STATUS_APPROVED:
+        return current
+    snapshot = (
+        feedback.tas_instructor_feedback_versions.select_related("submission_version")
+        .order_by("-version_number")
+        .first()
+    )
+    if snapshot is None or snapshot.submission_version is None:
+        return None
+    return submission.curie_reviews.filter(
+        submission_version_number=snapshot.submission_version.version_number,
+        status=CurieReview.STATUS_APPROVED,
+    ).first()
+
+
+def lifecycle_feedback_source(submission: Submission) -> str | None:
+    """Feedback source for lifecycle rules: an instructor-edited approval stays CURIE-owned."""
+    source = feedback_source_for(submission)
+    if source == SOURCE_HUMAN and workflow_released_review(submission) is not None:
+        return SOURCE_CURIE
+    return source
+
+
 def assert_create_status_allowed(block: Any, new_status: str) -> None:
     """CURIE-eligible blocks cannot Create with status=submitted; they must POST /submit/."""
     if new_status != Submission.STATUS_SUBMITTED:
@@ -79,7 +114,7 @@ def assert_student_patch_allowed(submission: Submission, *, is_reopen: bool) -> 
                 "Maximum CURIE submission attempts reached.",
                 status_code=409,
             )
-        if feedback_source_for(submission) == InstructorFeedback.SOURCE_CURIE:
+        if lifecycle_feedback_source(submission) == InstructorFeedback.SOURCE_CURIE:
             raise CuriePolicyError(
                 "CURIE-owned feedback cannot be reopened. Resubmit instead.",
                 status_code=409,
@@ -94,7 +129,13 @@ def assert_student_patch_allowed(submission: Submission, *, is_reopen: bool) -> 
 
 
 def assert_curie_feedback_withdrawable(submission: Submission) -> None:
-    source = feedback_source_for(submission)
+    review = current_review(submission)
+    if review is not None and released_via_approval(review.status):
+        raise CuriePolicyError(
+            "Approved CURIE feedback has been released and cannot be withdrawn.",
+            status_code=403,
+        )
+    source = lifecycle_feedback_source(submission)
     if not can_withdraw_feedback(source):
         raise CuriePolicyError(
             "CURIE-owned feedback cannot be withdrawn.",
@@ -108,5 +149,15 @@ def assert_instructor_form_unlocked(submission: Submission) -> None:
     if instructor_form_locked(review_status=status):
         raise CuriePolicyError(
             "CURIE is still reviewing this submission.",
+            status_code=409,
+        )
+    if awaiting_instructor_approval(status):
+        raise CuriePolicyError(
+            "CURIE feedback is awaiting approval. Approve it or use Edit & Approve.",
+            status_code=409,
+        )
+    if released_via_approval(status):
+        raise CuriePolicyError(
+            "CURIE feedback for this attempt has already been approved and released.",
             status_code=409,
         )

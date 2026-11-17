@@ -10,8 +10,10 @@ from tas_app.curie.constants import (
     MAX_SUBMISSION_ATTEMPTS,
     SOURCE_CURIE,
     SOURCE_HUMAN,
+    STATUS_APPROVED,
     STATUS_FAILED,
     STATUS_PENDING_EVALUATION,
+    STATUS_READY_FOR_APPROVAL,
     VERDICT_ACCEPTED,
     VERDICT_REJECTED,
 )
@@ -90,7 +92,11 @@ def legal_curie_resubmit(
 
     Human ownership is permanent: any ``source=human`` projection blocks CURIE submit,
     including draft and submitted/failed after withdraw. No feedback row is first submit.
+    A review released through instructor approval stays in the CURIE lifecycle even
+    when the instructor edited it (``source=human``).
     """
+    if review_status == STATUS_APPROVED:
+        return submission_status in (SUBMISSION_DRAFT, SUBMISSION_REJECTED)
     if human_owns_projection(feedback_source):
         return False
     if submission_status == SUBMISSION_APPROVED:
@@ -106,6 +112,14 @@ def legal_curie_resubmit(
 
 def instructor_form_locked(*, review_status: str | None) -> bool:
     return review_status == STATUS_PENDING_EVALUATION
+
+
+def awaiting_instructor_approval(review_status: str | None) -> bool:
+    return review_status == STATUS_READY_FOR_APPROVAL
+
+
+def released_via_approval(review_status: str | None) -> bool:
+    return review_status == STATUS_APPROVED
 
 
 def projected_submission_status(verdict: str) -> str:

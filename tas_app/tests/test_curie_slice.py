@@ -174,7 +174,7 @@ class CurieCallbackViewTest(TestCase):
         response = self._post(review.trigger_id, _success_payload(review), secret=None)
         self.assertEqual(response.status_code, 401)
 
-    def test_success_callback_projects_instructor_feedback(self):
+    def test_success_callback_stores_review_for_instructor_approval(self):
         submission = _swot_submission(status=Submission.STATUS_SUBMITTED, version_number=2)
         review = CurieReview.objects.create(submission=submission, submission_version_number=2)
         response = self._post(review.trigger_id, _success_payload(review))
@@ -182,15 +182,14 @@ class CurieCallbackViewTest(TestCase):
         self.assertEqual(response.data["status"], "applied")
         review.refresh_from_db()
         submission.refresh_from_db()
-        self.assertEqual(review.status, CurieReview.STATUS_READY)
+        self.assertEqual(review.status, CurieReview.STATUS_READY_FOR_APPROVAL)
         self.assertEqual(review.verdict, CurieReview.VERDICT_ACCEPTED)
-        feedback = submission.feedback
-        self.assertEqual(feedback.source, InstructorFeedback.SOURCE_CURIE)
-        self.assertEqual(feedback.status, "approved")
-        self.assertEqual(submission.status, Submission.STATUS_APPROVED)
-        self.assertIn("Strong submission overall", feedback.comment)
+        self.assertIn("Strong submission overall", review.overall_feedback)
+        self.assertEqual(submission.status, Submission.STATUS_SUBMITTED)
+        self.assertFalse(InstructorFeedback.objects.filter(submission=submission).exists())
+        self.assertIsNone(review.approved_at)
 
-    def test_gate_failure_projects_feedback_as_rejected(self):
+    def test_gate_failure_is_stored_unpublished_with_rejected_verdict(self):
         submission = _swot_submission(status=Submission.STATUS_SUBMITTED, version_number=2)
         review = CurieReview.objects.create(submission=submission, submission_version_number=2)
         payload = _success_payload(review)
@@ -202,12 +201,11 @@ class CurieCallbackViewTest(TestCase):
         self.assertEqual(response.data["status"], "applied")
         review.refresh_from_db()
         submission.refresh_from_db()
-        self.assertEqual(review.status, CurieReview.STATUS_READY)
+        self.assertEqual(review.status, CurieReview.STATUS_READY_FOR_APPROVAL)
         self.assertEqual(review.verdict, CurieReview.VERDICT_REJECTED)
         self.assertEqual(len(review.field_feedback), len(SWOT_FIELDS))
-        self.assertEqual(submission.status, Submission.STATUS_REJECTED)
-        self.assertEqual(submission.feedback.source, InstructorFeedback.SOURCE_CURIE)
-        self.assertEqual(submission.feedback.status, "rejected")
+        self.assertEqual(submission.status, Submission.STATUS_SUBMITTED)
+        self.assertFalse(InstructorFeedback.objects.filter(submission=submission).exists())
 
     def test_duplicate_success_callback_is_replayed(self):
         submission = _swot_submission(status=Submission.STATUS_SUBMITTED, version_number=2)

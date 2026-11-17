@@ -22,7 +22,11 @@ from .views import (
     TemplatesListView,
     WithdrawFeedbackAPIView,
 )
-from tas_app.curie.api import AdminCurieReviewAPIView, StudentCurieReviewAPIView
+from tas_app.curie.api import (
+    AdminCurieReviewApproveAPIView,
+    AdminCurieReviewAPIView,
+    StudentCurieReviewAPIView,
+)
 
 app_name = "tas_app"
 
@@ -107,6 +111,11 @@ urlpatterns = [
         "api/v1/submissions/<int:pk>/curie-review/",
         AdminCurieReviewAPIView.as_view(),
         name="admin-curie-review",
+    ),
+    path(
+        "api/v1/submissions/<int:pk>/curie-review/approve/",
+        AdminCurieReviewApproveAPIView.as_view(),
+        name="admin-curie-review-approve",
     ),
     path(
         "api/v1/submissions/<int:pk>/feedback/",

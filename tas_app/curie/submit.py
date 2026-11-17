@@ -9,6 +9,7 @@ from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from tas_app.curie.constants import MAX_SUBMISSION_ATTEMPTS
+from tas_app.curie.policy import lifecycle_feedback_source
 from tas_app.curie.settings import curie_enabled, validate_curie_settings
 from tas_app.curie.transitions import (
     attempt_count,
@@ -18,7 +19,7 @@ from tas_app.curie.transitions import (
     legal_curie_resubmit,
 )
 from tas_app.curie.trigger import enqueue_trigger
-from tas_app.models import CurieReview, InstructorFeedback, Submission
+from tas_app.models import CurieReview, Submission
 from tas_app.pdf_generator import generate_submission_pdf
 
 logger = logging.getLogger(__name__)
@@ -47,10 +48,7 @@ def _is_curie_path(submission: Submission) -> bool:
 
 
 def _feedback_source(submission: Submission) -> str | None:
-    try:
-        return submission.feedback.source
-    except InstructorFeedback.DoesNotExist:
-        return None
+    return lifecycle_feedback_source(submission)
 
 
 def _current_review(submission: Submission) -> CurieReview | None:

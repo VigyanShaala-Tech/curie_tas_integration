@@ -140,7 +140,7 @@ class CurieCallbackRaceTest(TestCase):
 
         self.assertEqual(apply_callback(review, _success_payload(review)), "applied")
         review.refresh_from_db()
-        self.assertEqual(review.status, CurieReview.STATUS_READY)
+        self.assertEqual(review.status, CurieReview.STATUS_READY_FOR_APPROVAL)
 
     def test_callback_rejects_field_not_present_in_frozen_trigger(self):
         submission = _swot_submission(status=Submission.STATUS_SUBMITTED, version_number=2)
@@ -173,9 +173,9 @@ class CurieCallbackRaceTest(TestCase):
         self.assertEqual(response.data["status"], "conflict")
         review.refresh_from_db()
         submission.refresh_from_db()
-        self.assertEqual(review.status, CurieReview.STATUS_READY)
+        self.assertEqual(review.status, CurieReview.STATUS_READY_FOR_APPROVAL)
         self.assertEqual(review.verdict, CurieReview.VERDICT_ACCEPTED)
-        self.assertEqual(submission.status, Submission.STATUS_APPROVED)
+        self.assertEqual(submission.status, Submission.STATUS_SUBMITTED)
 
     def test_conflicting_success_payload_is_409(self):
         submission = _swot_submission(status=Submission.STATUS_SUBMITTED, version_number=2)
@@ -199,8 +199,8 @@ class CurieCallbackRaceTest(TestCase):
         self.assertEqual(apply_callback(review, _success_payload(review)), "applied")
         review.refresh_from_db()
         submission.refresh_from_db()
-        self.assertEqual(review.status, CurieReview.STATUS_READY)
-        self.assertEqual(submission.status, Submission.STATUS_APPROVED)
+        self.assertEqual(review.status, CurieReview.STATUS_READY_FOR_APPROVAL)
+        self.assertEqual(submission.status, Submission.STATUS_SUBMITTED)
 
     def test_human_owner_supersedes_late_success(self):
         submission = _swot_submission(status=Submission.STATUS_SUBMITTED, version_number=2)
@@ -264,10 +264,8 @@ class CurieCallbackRaceTest(TestCase):
         payload = _success_payload(review)
         self.assertEqual(apply_callback(review, payload), "applied")
         review.refresh_from_db()
-        feedback = submission.feedback
-        feedback.source = SOURCE_HUMAN
-        feedback.status = STATUS_APPROVED
-        feedback.save(update_fields=["source", "status", "modified"])
+        InstructorFeedbackFactory(submission=submission, source=SOURCE_HUMAN, status=STATUS_APPROVED)
+        submission.refresh_from_db()
         ran = []
 
         with self.captureOnCommitCallbacks() as callbacks:
@@ -284,7 +282,7 @@ class CurieCallbackRaceTest(TestCase):
         review.refresh_from_db()
         self.assertEqual(apply_callback(review, _success_payload(review)), "applied")
         review.refresh_from_db()
-        self.assertEqual(review.status, CurieReview.STATUS_READY)
+        self.assertEqual(review.status, CurieReview.STATUS_READY_FOR_APPROVAL)
 
     def test_success_after_commit_hook_runs_only_after_commit(self):
         submission = _swot_submission(status=Submission.STATUS_SUBMITTED, version_number=2)
@@ -335,9 +333,8 @@ class CurieMysqlConcurrencyTest(TransactionTestCase):
         self.assertEqual(sorted(outcomes), ["applied", "replayed"])
         review.refresh_from_db()
         submission.refresh_from_db()
-        self.assertEqual(review.status, CurieReview.STATUS_READY)
-        self.assertEqual(submission.feedback.source, InstructorFeedback.SOURCE_CURIE)
-        self.assertEqual(InstructorFeedback.objects.filter(submission=submission).count(), 1)
+        self.assertEqual(review.status, CurieReview.STATUS_READY_FOR_APPROVAL)
+        self.assertFalse(InstructorFeedback.objects.filter(submission=submission).exists())
 
     def test_concurrent_conflicting_callbacks_keep_the_first_payload(self):
         self._skip_unless_mysql()
@@ -358,7 +355,7 @@ class CurieMysqlConcurrencyTest(TransactionTestCase):
 
         self.assertEqual(outcomes, ["applied", "conflict"])
         review.refresh_from_db()
-        self.assertEqual(review.status, CurieReview.STATUS_READY)
+        self.assertEqual(review.status, CurieReview.STATUS_READY_FOR_APPROVAL)
         self.assertIn(review.overall_feedback, {first["overall_feedback"], second["overall_feedback"]})
 
     @patch("tas_app.views._push_submission_grade")
@@ -393,19 +390,23 @@ class CurieMysqlConcurrencyTest(TransactionTestCase):
             callback_outcome = callback_future.result()
             human_status = human_future.result()
 
-        self.assertEqual(human_status, 200)
         self.assertIn(callback_outcome, {"applied", "superseded"})
         submission.refresh_from_db()
         review.refresh_from_db()
-        self.assertEqual(submission.feedback.source, SOURCE_HUMAN)
-        self.assertEqual(submission.feedback.status, STATUS_APPROVED)
-        self.assertEqual(submission.status, STATUS_APPROVED)
-        self.assertEqual(submission.feedback.comment, "Human finalizes this attempt.")
         if callback_outcome == "superseded":
-            self.assertNotEqual(review.status, CurieReview.STATUS_READY)
+            self.assertEqual(human_status, 200)
+            self.assertEqual(submission.feedback.source, SOURCE_HUMAN)
+            self.assertEqual(submission.feedback.status, STATUS_APPROVED)
+            self.assertEqual(submission.status, STATUS_APPROVED)
+            self.assertEqual(submission.feedback.comment, "Human finalizes this attempt.")
+            self.assertNotEqual(review.status, CurieReview.STATUS_READY_FOR_APPROVAL)
             self.assertIn(HUMAN_SUPERSEDED_DETAIL, review.error_detail)
         else:
-            self.assertEqual(review.status, CurieReview.STATUS_READY)
+            # CURIE landed first: legacy grading is closed in favour of the approval workflow.
+            self.assertEqual(human_status, 409)
+            self.assertEqual(review.status, CurieReview.STATUS_READY_FOR_APPROVAL)
+            self.assertEqual(submission.status, Submission.STATUS_SUBMITTED)
+            self.assertFalse(InstructorFeedback.objects.filter(submission=submission).exists())
 
     @patch("tas_app.views._push_submission_grade")
     @patch("tas_app.curie.submit.generate_submission_pdf")
@@ -459,12 +460,9 @@ class CurieMysqlConcurrencyTest(TransactionTestCase):
             self.assertEqual(reattempt_outcome, "conflict:409")
             self.assertEqual(len(reviews), 1)
             self.assertEqual(submission.version_number, 2)
-            self.assertEqual(submission.status, STATUS_APPROVED)
-            self.assertEqual(review.status, CurieReview.STATUS_READY)
-            self.assertIsNotNone(feedback)
-            self.assertEqual(feedback.source, InstructorFeedback.SOURCE_CURIE)
-            self.assertEqual(feedback.status, STATUS_APPROVED)
-            self.assertEqual(submission.status, feedback.status)
+            self.assertEqual(submission.status, Submission.STATUS_SUBMITTED)
+            self.assertEqual(review.status, CurieReview.STATUS_READY_FOR_APPROVAL)
+            self.assertIsNone(feedback)
         elif callback_outcome == "stale":
             self.assertEqual(reattempt_outcome, "reattempt")
             self.assertEqual(len(reviews), 2)
