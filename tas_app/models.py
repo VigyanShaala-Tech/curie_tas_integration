@@ -150,17 +150,47 @@ class Rubric(TimeStampedModel):
     TemplateBlock assignments.
 
     - name: human-readable label for the rubric.
-    - criteria: structured list of criterion objects (name, options, marks, etc.).
+    - schema_version: 1 = flat ``criteria`` list; 2 = weighted ``sections``.
+    - criteria: version 1 structured list of criterion objects (name, options, marks, etc.).
+    - sections: version 2 sections -> components (weight, gate, linked template fields)
+      -> criteria -> indicators (see ``utils.rubric_scoring``).
+    - template: version 2 template whose fields the components are linked to.
     - is_active: soft-delete flag; inactive rubrics are hidden from user-facing views.
     """
+
+    SCHEMA_SIMPLE = 1
+    SCHEMA_WEIGHTED = 2
+    SCHEMA_CHOICES = [
+        (SCHEMA_SIMPLE, "Simple categories"),
+        (SCHEMA_WEIGHTED, "Weighted components"),
+    ]
 
     name = models.TextField(
         db_index=True,
         help_text="Human-readable name of the rubric (e.g., 'Essay Rubric').",
     )
+    schema_version = models.PositiveSmallIntegerField(
+        choices=SCHEMA_CHOICES,
+        default=SCHEMA_SIMPLE,
+        help_text="1 = flat criteria list; 2 = weighted sections/components.",
+    )
     criteria = models.JSONField(
         default=list,
+        blank=True,
         help_text="Structured list of rubric criteria. Each entry defines a criterion name, options, and marks.",
+    )
+    sections = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="Weighted rubric sections (schema_version 2).",
+    )
+    template = models.ForeignKey(
+        "Template",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="rubrics",
+        help_text="Template whose fields the weighted components are linked to.",
     )
     is_active = models.BooleanField(
         default=True,

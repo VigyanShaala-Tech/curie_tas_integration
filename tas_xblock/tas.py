@@ -11,6 +11,7 @@ from django.template import Context
 from lms.djangoapps.courseware.access import has_access
 from tas_app.curie.transitions import is_assignment_type_eligible
 from tas_app.models import Rubric, Submission, Template, TemplateBlock, TemplateType
+from tas_app.utils.rubric_scoring import weighted_rubric_score
 from tas_app.utils.student_feedback import strip_category_headings_from_comment
 from xblock.core import XBlock
 from xblock.fields import Float, Scope, String
@@ -178,11 +179,14 @@ class TASXBlock(XBlock):
             rubric = Rubric.objects.get(pk=self.rubric_id, is_active=True)
         except (Rubric.DoesNotExist, ValueError):
             return None
-        total = 0
-        for criterion in rubric.criteria:
-            options = criterion.get("options", [])
-            if options:
-                total += max((opt.get("marks", 0) for opt in options), default=0)
+        if getattr(rubric, "schema_version", 1) == Rubric.SCHEMA_WEIGHTED:
+            _, total = weighted_rubric_score([], rubric.sections)
+        else:
+            total = 0
+            for criterion in rubric.criteria:
+                options = criterion.get("options", [])
+                if options:
+                    total += max((opt.get("marks", 0) for opt in options), default=0)
         return total if total > 0 else None
 
     def student_view(self, context=None):

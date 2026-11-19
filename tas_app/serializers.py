@@ -12,6 +12,7 @@ from .models import (
     TemplateBlock,
     STATUS_CHOICES,
 )
+from .utils.rubric_scoring import validate_rubric_sections
 
 
 class TemplateTypeSerializer(serializers.ModelSerializer):
@@ -95,8 +96,19 @@ class RubricSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Rubric
-        fields = ["id", "name", "criteria", "is_active"]
+        fields = ["id", "name", "schema_version", "criteria", "sections", "template", "is_active"]
         read_only_fields = ["id"]
+
+    def validate(self, attrs):
+        schema_version = attrs.get(
+            "schema_version",
+            self.instance.schema_version if self.instance else Rubric.SCHEMA_SIMPLE,
+        )
+        if schema_version == Rubric.SCHEMA_WEIGHTED and (self.instance is None or "sections" in attrs):
+            errors = validate_rubric_sections(attrs.get("sections"))
+            if errors:
+                raise serializers.ValidationError({"sections": errors})
+        return attrs
 
 
 class StudentSubmissionCreateSerializer(serializers.Serializer):
