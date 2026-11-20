@@ -4,7 +4,12 @@ Tests for rubric maximum marks (``tas_app.utils.rubric_scoring``) and ``views._c
 
 from django.test import SimpleTestCase
 
-from tas_app.utils.rubric_scoring import criterion_max_marks, rubric_max_marks
+from tas_app.utils.rubric_scoring import (
+    SCHEMA_SIMPLE,
+    criterion_max_marks,
+    rubric_max_marks,
+    score_rubric,
+)
 from tas_app.views import _calculate_score, ordered_template_field_labels
 
 # "Career exploration" rubric: three criteria whose options add up to 10 each.
@@ -61,6 +66,13 @@ class CalculateScoreTest(SimpleTestCase):
             {"component_id": "c-1", "criterion_scores": [{"criterion_id": "k", "score": 9}], "marks": 99},
         ]
         self.assertEqual(_calculate_score(rubrics, CRITERIA), (8, 30))
+
+    def test_empty_feedback_is_the_xblock_max(self):
+        """Verifies score_rubric with no rows returns 0 earned out of the summed max (30)."""
+        self.assertEqual(
+            score_rubric(SCHEMA_SIMPLE, CRITERIA, [], []),
+            (0, 30),
+        )
 
 
 class OrderedTemplateFieldLabelsTest(SimpleTestCase):

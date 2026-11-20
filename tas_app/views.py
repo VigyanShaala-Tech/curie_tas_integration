@@ -53,7 +53,7 @@ from .utils.cohort_form_metadata import (
     distinct_cohort_form_values,
     metadata_fields_for_user,
 )
-from .utils.rubric_scoring import criterion_max_marks, weighted_rubric_score
+from .utils.rubric_scoring import score_rubric, simple_rubric_score
 from .utils.admin_submission_filters import (
     apply_submission_list_filters,
     apply_submission_list_ordering,
@@ -74,44 +74,43 @@ class CustomizedPageNumberPagination(LazyPageNumberPagination):
 
 
 def _calculate_score(feedback_rubrics, rubric_criteria):
-    """
-    Re-calculate earned marks against the current rubric criteria.
-
-    For each feedback entry the selected_option name is looked up in the
-    current rubric to get the up-to-date mark.  Falls back to the stored
-    mark when the option no longer exists (e.g. rubric was edited after
-    grading).  Returns (earned, max_possible).
-    """
-    criteria_map = {}
-    max_possible = 0
-    for criterion in rubric_criteria or []:
-        options = criterion.get("options", [])
-        if options:
-            # Criteria use "criterion" as the name key (matches the feedback format)
-            crit_name = criterion.get("criterion") or criterion.get("name") or ""
-            if crit_name:
-                criteria_map[crit_name] = {opt.get("name", ""): opt.get("marks", 0) for opt in options}
-            max_possible += criterion_max_marks(options)
-
-    earned = 0
-    for entry in feedback_rubrics or []:
-        # Per-template-field and weighted-component rows share this JSON list. They are not rubric criteria.
-        if entry.get("field_id") or entry.get("component_id"):
-            continue
-        option_map = criteria_map.get(entry.get("criterion", ""), {})
-        selected = entry.get("selected_option", "")
-        earned += option_map[selected] if selected in option_map else entry.get("marks", 0)
-
-    return earned, max_possible
+    """Alias for simple_rubric_score so existing tests keep importing from views."""
+    return simple_rubric_score(feedback_rubrics, rubric_criteria)
 
 
-def rubric_score(feedback_rubrics, rubric):
+def _field_feedback_for_score(submission):
+    """Instructor override field_feedback, else the current ready CURIE review."""
+    try:
+        structured = getattr(submission.feedback, "structured_feedback", None) or {}
+        if isinstance(structured, dict) and structured.get("field_feedback"):
+            return structured["field_feedback"]
+    except InstructorFeedback.DoesNotExist:
+        pass
+    review = (
+        CurieReview.objects.filter(
+            submission=submission,
+            submission_version_number=submission.version_number,
+            status=CurieReview.STATUS_READY,
+        )
+        .only("field_feedback")
+        .first()
+    )
+    if review:
+        return review.field_feedback
+    return None
+
+
+def rubric_score(feedback_rubrics, rubric, field_feedback=None):
     """(earned, max_possible) for feedback against the current rubric, in either rubric format."""
     if rubric is None:
         return 0, 0
-    if rubric.schema_version == Rubric.SCHEMA_WEIGHTED:
-        return weighted_rubric_score(feedback_rubrics, rubric.sections)
-    return _calculate_score(feedback_rubrics, rubric.criteria)
+    return score_rubric(
+        schema_version=rubric.schema_version,
+        criteria=rubric.criteria,
+        sections=getattr(rubric, "sections", None),
+        feedback_rubrics=feedback_rubrics,
+        field_feedback=field_feedback,
+    )
 
 
 def ordered_template_field_labels(fields):
@@ -173,7 +172,11 @@ def _push_submission_grade(submission, feedback_rubrics, *, curie_trigger_id=Non
     if not rubric:
         return
 
-    earned, max_possible = rubric_score(feedback_rubrics, rubric)
+    earned, max_possible = rubric_score(
+        feedback_rubrics,
+        rubric,
+        field_feedback=_field_feedback_for_score(submission),
+    )
     if max_possible <= 0:
         return
 

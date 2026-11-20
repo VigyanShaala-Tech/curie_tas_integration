@@ -25,6 +25,8 @@ from __future__ import annotations
 CRITERION_MAX = 10
 WEIGHT_TOTAL = 100
 _TOLERANCE = 1e-6
+SCHEMA_SIMPLE = 1
+SCHEMA_WEIGHTED = 2
 
 
 def criterion_max_marks(options) -> float:
@@ -35,6 +37,39 @@ def criterion_max_marks(options) -> float:
 def rubric_max_marks(criteria) -> float:
     """Marks a rubric is worth: the sum over its criteria."""
     return sum(criterion_max_marks(criterion.get("options", [])) for criterion in criteria or [])
+
+
+def simple_rubric_score(feedback_rubrics, rubric_criteria) -> tuple[float, float]:
+    """
+    Re-calculate earned marks against the current simple (schema v1) criteria.
+
+    For each feedback entry the selected_option name is looked up in the
+    current rubric to get the up-to-date mark. Falls back to the stored
+    mark when the option no longer exists (e.g. rubric was edited after
+    grading). Returns (earned, max_possible).
+    """
+    criteria_map = {}
+    max_possible = 0
+    for criterion in rubric_criteria or []:
+        options = criterion.get("options", [])
+        if options:
+            crit_name = criterion.get("criterion") or criterion.get("name") or ""
+            if crit_name:
+                criteria_map[crit_name] = {opt.get("name", ""): opt.get("marks", 0) for opt in options}
+            max_possible += criterion_max_marks(options)
+
+    earned = 0
+    for entry in feedback_rubrics or []:
+        if not isinstance(entry, dict):
+            continue
+        # Per-template-field and weighted-component rows share this JSON list.
+        if entry.get("field_id") or entry.get("component_id"):
+            continue
+        option_map = criteria_map.get(entry.get("criterion", ""), {})
+        selected = entry.get("selected_option", "")
+        earned += option_map[selected] if selected in option_map else entry.get("marks", 0)
+
+    return earned, max_possible
 
 
 def _number(value):
@@ -131,32 +166,40 @@ def validate_rubric_sections(sections) -> list[str]:
 
 
 def component_score(component, feedback_row) -> float | None:
-    """Average criterion score (0-10) of one component, or None when nothing is scored."""
+    """Average of every criterion (0-10); missing criteria count as 0.
+
+    Returns None when the row has no numeric criterion scores so an unscored
+    component still earns 0 while keeping its share of max_possible.
+    """
     if not isinstance(feedback_row, dict):
         return None
     scores_by_id = {}
     scores_by_name = {}
+    has_numeric = False
     for item in feedback_row.get("criterion_scores") or []:
         if not isinstance(item, dict):
             continue
         score = _number(item.get("score"))
         if score is None:
             continue
+        has_numeric = True
         score = min(max(score, 0.0), float(CRITERION_MAX))
         if item.get("criterion_id"):
             scores_by_id[item["criterion_id"]] = score
         if item.get("criterion"):
             scores_by_name[item["criterion"]] = score
+    if not has_numeric:
+        return None
 
+    criteria = [criterion for criterion in (component.get("criteria") or []) if isinstance(criterion, dict)]
+    if not criteria:
+        return None
     found = []
-    for criterion in component.get("criteria") or []:
+    for criterion in criteria:
         score = scores_by_id.get(criterion.get("id"))
         if score is None:
             score = scores_by_name.get(criterion.get("name"))
-        if score is not None:
-            found.append(score)
-    if not found:
-        return None
+        found.append(0.0 if score is None else score)
     return sum(found) / len(found)
 
 
@@ -179,3 +222,79 @@ def weighted_rubric_score(feedback_rubrics, sections) -> tuple[float, float]:
         if score is not None:
             earned += component_max * score / CRITERION_MAX
     return round(earned, 2), round(max_possible, 2)
+
+
+def _merged_criterion_scores(entries) -> list[dict]:
+    """Average overlapping criterion names when several fields map to one component."""
+    totals = {}
+    counts = {}
+    for entry in entries:
+        seen = set()
+        for item in entry.get("criterion_scores") or []:
+            if not isinstance(item, dict):
+                continue
+            score = _number(item.get("score"))
+            name = item.get("criterion")
+            if score is None or not name or name in seen:
+                continue
+            seen.add(name)
+            score = min(max(score, 0.0), float(CRITERION_MAX))
+            totals[name] = totals.get(name, 0.0) + score
+            counts[name] = counts.get(name, 0) + 1
+    return [
+        {"criterion": name, "score": totals[name] / counts[name]}
+        for name in totals
+    ]
+
+
+def component_rows_from_field_feedback(sections, field_feedback) -> list[dict]:
+    """Map CURIE/instructor field_feedback onto weighted component rows via field_ids."""
+    by_field = {}
+    for entry in field_feedback or []:
+        if isinstance(entry, dict) and entry.get("field_id"):
+            by_field[entry["field_id"]] = entry
+
+    rows = []
+    for component in iter_components(sections):
+        if component.get("is_gate"):
+            continue
+        entries = [
+            by_field[field_id]
+            for field_id in (component.get("field_ids") or [])
+            if field_id in by_field
+        ]
+        if not entries:
+            continue
+        rows.append({
+            "component_id": component.get("id"),
+            "criterion_scores": _merged_criterion_scores(entries),
+        })
+    return rows
+
+
+def _has_component_rows(feedback_rubrics) -> bool:
+    return any(
+        isinstance(entry, dict) and entry.get("component_id")
+        for entry in feedback_rubrics or []
+    )
+
+
+def score_rubric(
+    schema_version,
+    criteria,
+    sections,
+    feedback_rubrics,
+    field_feedback=None,
+) -> tuple[float, float]:
+    """(earned, max_possible) for either rubric schema.
+
+    Weighted rubrics prefer instructor ``component_id`` rows. When those are
+    absent (CURIE auto-publish projects three category rows), field_feedback is
+    mapped onto components by ``field_ids``.
+    """
+    if schema_version == SCHEMA_WEIGHTED:
+        rows = list(feedback_rubrics or [])
+        if not _has_component_rows(rows) and field_feedback:
+            rows = component_rows_from_field_feedback(sections, field_feedback)
+        return weighted_rubric_score(rows, sections)
+    return simple_rubric_score(feedback_rubrics, criteria)

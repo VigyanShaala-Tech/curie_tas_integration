@@ -10,7 +10,7 @@ from tas_app.tests.test_curie_manual_publish import MANUAL_SETTINGS
 from tas_app.tests.test_curie_phase3 import _post_human_feedback
 from tas_app.tests.test_curie_slice import _success_payload, _swot_submission
 from tas_app.tests.test_models import UserFactory
-from tas_app.utils.rubric_scoring import weighted_rubric_score
+from tas_app.utils.rubric_scoring import SCHEMA_WEIGHTED, score_rubric, weighted_rubric_score
 
 
 def _criteria(prefix):
@@ -196,6 +196,27 @@ class WeightedCurieOverrideTest(TestCase):
         self.assertEqual(self.review.status, CurieReview.STATUS_READY)
         self.assertEqual(self.review.field_feedback[0]["comment"], original_goal)
         self.assertEqual(self.review.gate_criterion_scores, original_gate)
+
+    def test_ready_curie_projection_scores_from_field_feedback(self):
+        """Verifies CURIE category rows plus field_feedback are not 0/10 on a weighted rubric."""
+        self._store_success()
+        self.review.refresh_from_db()
+        projected_rubrics = [
+            {"criterion": "Task Relevance", "marks": 9, "selected_option": "Score: 9"},
+            {"criterion": "Reasoning/Understanding", "marks": 8, "selected_option": "Score: 8"},
+            {"criterion": "Specificity/Evidence", "marks": 9, "selected_option": "Score: 9"},
+        ]
+        self.assertFalse(any(row.get("component_id") for row in projected_rubrics))
+        earned, max_possible = score_rubric(
+            SCHEMA_WEIGHTED,
+            [],
+            SECTIONS,
+            projected_rubrics,
+            field_feedback=self.review.field_feedback,
+        )
+        self.assertEqual(max_possible, 10.0)
+        self.assertNotEqual((earned, max_possible), (0.0, 10.0))
+        self.assertEqual((earned, max_possible), (8.67, 10.0))
 
     def test_ready_review_without_component_rows_still_requires_structured_feedback(self):
         self._store_success()

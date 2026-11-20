@@ -10,8 +10,8 @@ from django.db import transaction
 from django.template import Context
 from lms.djangoapps.courseware.access import has_access
 from tas_app.curie.transitions import is_assignment_type_eligible
-from tas_app.models import Rubric, Submission, Template, TemplateBlock, TemplateType
-from tas_app.utils.rubric_scoring import weighted_rubric_score
+from tas_app.models import CurieReview, Rubric, Submission, Template, TemplateBlock, TemplateType
+from tas_app.utils.rubric_scoring import score_rubric
 from tas_app.utils.student_feedback import strip_category_headings_from_comment
 from xblock.core import XBlock
 from xblock.fields import Float, Scope, String
@@ -134,11 +134,28 @@ class TASXBlock(XBlock):
             assigment_pdf_url = submission.pdf.url if submission.pdf else None
             try:
                 fb = submission.feedback
+                structured = fb.structured_feedback or {}
+                field_feedback = None
+                if isinstance(structured, dict) and structured.get("field_feedback"):
+                    field_feedback = structured["field_feedback"]
+                else:
+                    review = (
+                        CurieReview.objects.filter(
+                            submission=submission,
+                            submission_version_number=submission.version_number,
+                            status=CurieReview.STATUS_READY,
+                        )
+                        .only("field_feedback")
+                        .first()
+                    )
+                    if review:
+                        field_feedback = review.field_feedback
                 feedback = {
                     "status": fb.status,
                     "comment": fb.comment,
                     "comment_html": strip_category_headings_from_comment(fb.comment),
                     "rubrics": fb.rubrics or [],
+                    "field_feedback": field_feedback,
                 }
             except Exception:
                 pass
@@ -165,6 +182,14 @@ class TASXBlock(XBlock):
             due_date = due_date + self.graceperiod
         return datetime.now(due_date.tzinfo) > due_date
 
+    def _active_rubric(self):
+        if not self.rubric_id:
+            return None
+        try:
+            return Rubric.objects.get(pk=self.rubric_id, is_active=True)
+        except (Rubric.DoesNotExist, ValueError):
+            return None
+
     def max_score(self):
         """
         Return the maximum achievable score across all rubric criteria.
@@ -173,20 +198,15 @@ class TASXBlock(XBlock):
         rubric is selected or the record is missing, so the runtime treats this
         block as ungraded.
         """
-        if not self.rubric_id:
+        rubric = self._active_rubric()
+        if rubric is None:
             return None
-        try:
-            rubric = Rubric.objects.get(pk=self.rubric_id, is_active=True)
-        except (Rubric.DoesNotExist, ValueError):
-            return None
-        if getattr(rubric, "schema_version", 1) == Rubric.SCHEMA_WEIGHTED:
-            _, total = weighted_rubric_score([], rubric.sections)
-        else:
-            total = 0
-            for criterion in rubric.criteria:
-                options = criterion.get("options", [])
-                if options:
-                    total += max((opt.get("marks", 0) for opt in options), default=0)
+        _, total = score_rubric(
+            schema_version=getattr(rubric, "schema_version", 1),
+            criteria=rubric.criteria,
+            sections=getattr(rubric, "sections", None),
+            feedback_rubrics=[],
+        )
         return total if total > 0 else None
 
     def student_view(self, context=None):
@@ -209,10 +229,16 @@ class TASXBlock(XBlock):
         # the page.
         assigment_earned_score = None
         assigment_max_score = None
-        if not is_course_staff and assigment_status == "approved" and assigment_feedback:
-            max_possible = self.max_score() or 0
+        rubric = self._active_rubric()
+        if not is_course_staff and assigment_status == "approved" and assigment_feedback and rubric:
+            earned, max_possible = score_rubric(
+                schema_version=getattr(rubric, "schema_version", 1),
+                criteria=rubric.criteria,
+                sections=getattr(rubric, "sections", None),
+                feedback_rubrics=assigment_feedback.get("rubrics") or [],
+                field_feedback=assigment_feedback.get("field_feedback"),
+            )
             if max_possible > 0:
-                earned = sum(r.get("marks", 0) for r in (assigment_feedback.get("rubrics") or []))
                 self.runtime.publish(
                     self,
                     "grade",
