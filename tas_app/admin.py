@@ -65,7 +65,8 @@ class TemplateAdmin(admin.ModelAdmin):
 # -------------------------------
 @admin.register(Rubric)
 class RubricAdmin(admin.ModelAdmin):
-    list_display = ("name", "is_active", "created")
+    list_display = ("name", "schema_version", "is_active", "created")
+    raw_id_fields = ("template",)
     search_fields = ("name",)
     list_filter = ("is_active",)
     ordering = ("name",)

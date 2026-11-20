@@ -53,6 +53,7 @@ from .utils.cohort_form_metadata import (
     distinct_cohort_form_values,
     metadata_fields_for_user,
 )
+from .utils.rubric_scoring import score_rubric, simple_rubric_score
 from .utils.admin_submission_filters import (
     apply_submission_list_filters,
     apply_submission_list_ordering,
@@ -73,32 +74,62 @@ class CustomizedPageNumberPagination(LazyPageNumberPagination):
 
 
 def _calculate_score(feedback_rubrics, rubric_criteria):
+    """Alias for simple_rubric_score so existing tests keep importing from views."""
+    return simple_rubric_score(feedback_rubrics, rubric_criteria)
+
+
+def _field_feedback_for_score(submission):
+    """Instructor override field_feedback, else the current ready CURIE review."""
+    try:
+        structured = getattr(submission.feedback, "structured_feedback", None) or {}
+        if isinstance(structured, dict) and structured.get("field_feedback"):
+            return structured["field_feedback"]
+    except InstructorFeedback.DoesNotExist:
+        pass
+    review = (
+        CurieReview.objects.filter(
+            submission=submission,
+            submission_version_number=submission.version_number,
+            status=CurieReview.STATUS_READY,
+        )
+        .only("field_feedback")
+        .first()
+    )
+    if review:
+        return review.field_feedback
+    return None
+
+
+def rubric_score(feedback_rubrics, rubric, field_feedback=None):
+    """(earned, max_possible) for feedback against the current rubric, in either rubric format."""
+    if rubric is None:
+        return 0, 0
+    return score_rubric(
+        schema_version=rubric.schema_version,
+        criteria=rubric.criteria,
+        sections=getattr(rubric, "sections", None),
+        feedback_rubrics=feedback_rubrics,
+        field_feedback=field_feedback,
+    )
+
+
+def ordered_template_field_labels(fields):
     """
-    Re-calculate earned marks against the current rubric criteria.
+    Active template fields as an id-to-label map in stored order.
 
-    For each feedback entry the selected_option name is looked up in the
-    current rubric to get the up-to-date mark.  Falls back to the stored
-    mark when the option no longer exists (e.g. rubric was edited after
-    grading).  Returns (earned, max_possible).
+    Inactive fields and repeated ids are omitted. The first id wins.
     """
-    criteria_map = {}
-    max_possible = 0
-    for criterion in rubric_criteria or []:
-        options = criterion.get("options", [])
-        if options:
-            # Criteria use "criterion" as the name key (matches the feedback format)
-            crit_name = criterion.get("criterion") or criterion.get("name") or ""
-            if crit_name:
-                criteria_map[crit_name] = {opt.get("name", ""): opt.get("marks", 0) for opt in options}
-            max_possible += max((opt.get("marks", 0) for opt in options), default=0)
-
-    earned = 0
-    for entry in feedback_rubrics or []:
-        option_map = criteria_map.get(entry.get("criterion", ""), {})
-        selected = entry.get("selected_option", "")
-        earned += option_map[selected] if selected in option_map else entry.get("marks", 0)
-
-    return earned, max_possible
+    template_fields = {}
+    seen_field_ids = set()
+    for field in fields or []:
+        if not isinstance(field, dict) or field.get("active", True) is False:
+            continue
+        field_id = field.get("id")
+        if not field_id or field_id in seen_field_ids:
+            continue
+        seen_field_ids.add(field_id)
+        template_fields[str(field_id)] = field.get("label") or str(field_id)
+    return template_fields
 
 
 def _feedback_options_by_category(feedback_options):
@@ -141,7 +172,11 @@ def _push_submission_grade(submission, feedback_rubrics, *, curie_trigger_id=Non
     if not rubric:
         return
 
-    earned, max_possible = _calculate_score(feedback_rubrics, rubric.criteria)
+    earned, max_possible = rubric_score(
+        feedback_rubrics,
+        rubric,
+        field_feedback=_field_feedback_for_score(submission),
+    )
     if max_possible <= 0:
         return
 
@@ -169,7 +204,7 @@ def _clear_submission_grade(submission):
     if not rubric:
         return
 
-    _, max_possible = _calculate_score([], rubric.criteria)
+    _, max_possible = rubric_score([], rubric)
     if max_possible <= 0:
         return
 
@@ -441,7 +476,9 @@ class RubricsListView(ListCreateAPIView):
         Creates a new Rubric. Requires 'name' and 'criteria'.
     """
 
-    queryset = Rubric.objects.all().order_by("name").only("id", "name", "criteria", "is_active")
+    queryset = Rubric.objects.all().order_by("name").only(
+        "id", "name", "schema_version", "criteria", "sections", "template", "is_active"
+    )
     serializer_class = RubricSerializer
     permission_classes = [permissions.IsAdminUser]
     pagination_class = CustomizedPageNumberPagination
@@ -470,7 +507,9 @@ class RubricsDetailView(APIView):
 
     def get_object(self, pk):
         try:
-            return Rubric.objects.only("id", "name", "criteria", "is_active").get(pk=pk)
+            return Rubric.objects.only(
+                "id", "name", "schema_version", "criteria", "sections", "template", "is_active"
+            ).get(pk=pk)
         except Rubric.DoesNotExist:
             raise NotFound("Rubric not found.")
 
@@ -484,7 +523,7 @@ class RubricsDetailView(APIView):
         serializer = RubricSerializer(rubric, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()
-        if "criteria" in request.data:
+        if "criteria" in request.data or "sections" in request.data:
             _requeue_grades_for_rubric(rubric)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
@@ -683,7 +722,7 @@ class LearnerSubmissionDetailAPIView(APIView):
         try:
             submission = (
                 Submission.objects.select_related(
-                    "student", "feedback", "template_block__template"
+                    "student", "feedback", "template_block__template__template_type"
                 )
                 .prefetch_related("curie_reviews")
                 .get(id=pk)
@@ -767,14 +806,16 @@ class LearnerSubmissionDetailAPIView(APIView):
                 }
             )
 
-        # Build field_id → label map from the linked template so the frontend
-        # can display human-readable labels instead of raw field IDs.
-        template_fields = {}
         try:
-            for field in submission.template_block.template.fields:
-                template_fields[field["id"]] = field.get("label", field["id"])
+            template_fields = ordered_template_field_labels(submission.template_block.template.fields)
         except Exception:
-            pass
+            template_fields = {}
+
+        template_type_slug = ""
+        try:
+            template_type_slug = submission.template_block.template.template_type.slug or ""
+        except Exception:
+            template_type_slug = ""
 
         # Prepare response payload
         data = {
@@ -787,6 +828,7 @@ class LearnerSubmissionDetailAPIView(APIView):
             "version": submission.version_number,
             "form_data": submission.form_data,
             "template_fields": template_fields,
+            "template_type_slug": template_type_slug,
             "pdf": pdf_url,
             "feedback": feedback_data,
             "version_history": version_history,
@@ -829,11 +871,15 @@ class RubricsAPIView(APIView):
                 status=status.HTTP_404_NOT_FOUND,
             )
         feedback_map = _feedback_options_by_category(block.feedback_options)
-        criteria = block.rubric.criteria if block.rubric else []
+        rubric = block.rubric
+        weighted = bool(rubric) and rubric.schema_version == Rubric.SCHEMA_WEIGHTED
+        criteria = rubric.criteria if rubric and not weighted else []
         data = {
             "display_name": block.display_name,
             "instructions": block.instructions,
+            "schema_version": rubric.schema_version if rubric else Rubric.SCHEMA_SIMPLE,
             "rubrics": _rubrics_with_predefined_feedback(criteria, feedback_map),
+            "sections": rubric.sections if weighted else [],
         }
 
         return Response(data, status=status.HTTP_200_OK)
@@ -923,6 +969,8 @@ class InstructorFeedbackAPIView(APIView):
         validated_data = serializer.validated_data
         submission_status = validated_data.get("status", STATUS_PENDING)
 
+        from django.utils.html import strip_tags
+
         from tas_app.curie.callback import submitted_field_ids
         from tas_app.curie.constants import VERDICT_ACCEPTED, VERDICT_REJECTED
         from tas_app.curie.policy import (
@@ -932,6 +980,7 @@ class InstructorFeedbackAPIView(APIView):
         )
         from tas_app.curie.projection import sanitize_overall_feedback
         from tas_app.curie.scoring import instructor_rubric_entries
+        from tas_app.utils.weighted_override import structured_feedback_from_components
         from tas_app.curie.validation import (
             CallbackValidationError,
             validate_criterion_scores,
@@ -952,8 +1001,42 @@ class InstructorFeedbackAPIView(APIView):
                 structured_feedback = {}
                 rubrics = validated_data.get("rubrics", [])
                 comment = validated_data.get("comment", "")
+                component_rows = [
+                    row for row in rubrics
+                    if isinstance(row, dict) and row.get("component_id")
+                ]
+                block_rubric = getattr(submission.template_block, "rubric", None)
+                weighted_component_override = (
+                    review is not None
+                    and review.status == CurieReview.STATUS_READY
+                    and not structured_input
+                    and block_rubric is not None
+                    and block_rubric.schema_version == Rubric.SCHEMA_WEIGHTED
+                    and bool(component_rows)
+                )
 
-                if review is not None and review.status == CurieReview.STATUS_READY:
+                if weighted_component_override:
+                    if submission_status not in (STATUS_APPROVED, STATUS_REJECTED):
+                        raise ValidationError(
+                            {"status": "A structured CURIE override must be approved or rejected."}
+                        )
+                    plain_comment = sanitize_overall_feedback(strip_tags(comment or ""))
+                    verdict = (
+                        VERDICT_ACCEPTED
+                        if submission_status == STATUS_APPROVED
+                        else VERDICT_REJECTED
+                    )
+                    structured_feedback = structured_feedback_from_components(
+                        sections=block_rubric.sections,
+                        component_rows=component_rows,
+                        gate_criterion_scores=review.gate_criterion_scores,
+                        field_feedback=review.field_feedback,
+                        overall_feedback=plain_comment,
+                        verdict=verdict,
+                    )
+                    rubrics = component_rows
+                    comment = plain_comment
+                elif review is not None and review.status == CurieReview.STATUS_READY:
                     if not structured_input:
                         raise ValidationError(
                             {"structured_feedback": "CURIE overrides require structured feedback."}
@@ -1007,7 +1090,20 @@ class InstructorFeedbackAPIView(APIView):
                         "field_feedback": field_feedback,
                         "overall_feedback": overall.strip(),
                     }
-                    rubrics = instructor_rubric_entries(field_feedback)
+                    submitted_rubrics = validated_data.get("rubrics", [])
+                    component_rows = [
+                        row for row in submitted_rubrics
+                        if isinstance(row, dict) and row.get("component_id")
+                    ]
+                    block_rubric = getattr(submission.template_block, "rubric", None)
+                    if (
+                        block_rubric is not None
+                        and block_rubric.schema_version == Rubric.SCHEMA_WEIGHTED
+                        and component_rows
+                    ):
+                        rubrics = component_rows
+                    else:
+                        rubrics = instructor_rubric_entries(field_feedback)
                     comment = sanitize_overall_feedback(overall)
                 elif structured_input:
                     raise ValidationError(
