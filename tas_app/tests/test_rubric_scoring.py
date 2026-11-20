@@ -12,20 +12,37 @@ from tas_app.utils.rubric_scoring import (
 )
 from tas_app.views import _calculate_score, ordered_template_field_labels
 
-# "Career exploration" rubric: three criteria whose options add up to 10 each.
+# Existing SWOT (v1) rubric: option marks sum to 84, but the highest option
+# per criterion is 10, so the rubric is worth 30 (not 84).
 CRITERIA = [
-    {"criterion": "Task Relevance", "options": [{"name": f"T{i}", "marks": m} for i, m in enumerate([2, 2, 3, 2, 1])]},
-    {"criterion": "Reasoning", "options": [{"name": f"R{i}", "marks": m} for i, m in enumerate([1, 3, 2, 3, 1])]},
-    {"criterion": "Specificity", "options": [{"name": f"S{i}", "marks": m} for i, m in enumerate([2, 3, 2, 2, 1])]},
+    {
+        "criterion": "Task Relevance",
+        "options": [{"name": f"T{i}", "marks": m} for i, m in enumerate([0, 2, 4, 6, 8, 10])],
+    },
+    {
+        "criterion": "Reasoning",
+        "options": [{"name": f"R{i}", "marks": m} for i, m in enumerate([0, 2, 4, 6, 8, 10])],
+    },
+    {
+        "criterion": "Specificity",
+        "options": [{"name": f"S{i}", "marks": m} for i, m in enumerate([0, 2, 4, 8, 10])],
+    },
 ]
 
 
-class RubricMaxMarksTest(SimpleTestCase):
-    """A criterion is worth the sum of its option marks, a rubric the sum over its criteria."""
+def _all_option_marks(criteria):
+    return sum(opt.get("marks", 0) or 0 for criterion in criteria for opt in criterion["options"])
 
-    def test_sum_of_option_marks(self):
-        """Verifies three criteria of 10 make a 30-mark rubric, not the highest option per criterion (9)."""
+
+class RubricMaxMarksTest(SimpleTestCase):
+    """A criterion is worth its highest option marks, a rubric the sum of those maxima."""
+
+    def test_highest_option_per_criterion(self):
+        """Verifies SWOT option marks that sum to 84 still make a 30-mark rubric."""
+        self.assertEqual(_all_option_marks(CRITERIA), 84)
         self.assertEqual(criterion_max_marks(CRITERIA[0]["options"]), 10)
+        self.assertEqual(criterion_max_marks(CRITERIA[1]["options"]), 10)
+        self.assertEqual(criterion_max_marks(CRITERIA[2]["options"]), 10)
         self.assertEqual(rubric_max_marks(CRITERIA), 30)
 
     def test_empty(self):
@@ -68,7 +85,7 @@ class CalculateScoreTest(SimpleTestCase):
         self.assertEqual(_calculate_score(rubrics, CRITERIA), (8, 30))
 
     def test_empty_feedback_is_the_xblock_max(self):
-        """Verifies score_rubric with no rows returns 0 earned out of the summed max (30)."""
+        """Verifies score_rubric with no rows returns 0 earned out of the per-criterion max (30)."""
         self.assertEqual(
             score_rubric(SCHEMA_SIMPLE, CRITERIA, [], []),
             (0, 30),

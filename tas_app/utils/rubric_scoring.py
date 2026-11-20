@@ -1,10 +1,10 @@
 """
 Rubric marks and scores.
 
-Simple rubrics (schema_version 1): each criterion's options are parts of that criterion's
-marks (Manage Rubrics makes them add up to 10), and the grading screen scores every
-criterion out of that total, so a criterion is worth the sum of its option marks and a
-rubric the sum over its criteria (three criteria of 10 make 30).
+Simple rubrics (schema_version 1): each criterion is worth the highest option's
+marks (the best performance level). The rubric total is the sum of those maxima.
+A SWOT rubric with three criteria whose highest option is 10 is worth 30, even
+when all option marks together sum to 84.
 
 Weighted rubrics (schema_version 2) are stored as sections of components::
 
@@ -30,8 +30,8 @@ SCHEMA_WEIGHTED = 2
 
 
 def criterion_max_marks(options) -> float:
-    """Marks a criterion is worth: the sum of its options' marks."""
-    return sum(option.get("marks", 0) or 0 for option in options or [])
+    """Marks a criterion is worth: the highest of its options' marks."""
+    return max((option.get("marks", 0) or 0 for option in options or []), default=0)
 
 
 def rubric_max_marks(criteria) -> float:
